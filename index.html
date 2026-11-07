@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#173b36">
+  <meta name="description" content="Gestion mensuelle du stock des produits chimiques sensibles.">
+  <title>Suivi des produits sensibles</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="loginScreen" class="login-screen">
+    <form id="loginForm" class="login-card">
+      <div class="brand-mark">CS</div>
+      <p class="eyebrow">GESTION DE STOCK</p>
+      <h1>Produits sensibles</h1>
+      <p class="muted">Accès réservé au personnel autorisé.</p>
+      <label for="accessPin">Code d’accès</label>
+      <input id="accessPin" type="password" inputmode="numeric" autocomplete="current-password" required placeholder="Saisir le code">
+      <button class="btn btn-primary full" type="submit">Se connecter</button>
+      <p id="loginError" class="form-error" role="alert"></p>
+    </form>
+  </div>
+
+  <div id="appShell" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">CS</div>
+        <div><strong>Stock sensible</strong><small>Suivi mensuel</small></div>
+      </div>
+      <nav class="main-nav" aria-label="Navigation principale">
+        <button class="nav-link active" data-view="dashboard"><span>▦</span> Vue d’ensemble</button>
+        <button class="nav-link" data-view="receipts"><span>↓</span> Réception mensuelle</button>
+        <button class="nav-link" data-view="consumption"><span>↑</span> Consommation</button>
+        <button class="nav-link" data-view="reports"><span>▤</span> Rapports</button>
+        <button class="nav-link" data-view="settings"><span>⚙</span> Stock initial</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="secure-note"><span class="status-dot"></span><span>Session sécurisée</span></div>
+        <button id="logoutBtn" class="logout-btn">Déconnexion</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">GESTION DES PRODUITS CHIMIQUES</p>
+          <h1 id="pageTitle">Vue d’ensemble</h1>
+        </div>
+        <div class="topbar-actions">
+          <label class="month-control"><span>Mois suivi</span><input id="monthPicker" type="month"></label>
+          <button id="refreshBtn" class="icon-btn" title="Actualiser" aria-label="Actualiser">↻</button>
+        </div>
+      </header>
+
+      <div id="appMessage" class="app-message hidden" role="status"></div>
+
+      <section id="view-dashboard" class="view-section">
+        <div class="section-intro"><div><h2>Situation du stock</h2><p>Soldes calculés automatiquement à partir des mouvements enregistrés.</p></div><span id="monthLabel" class="month-chip"></span></div>
+        <div class="stat-grid">
+          <article class="stat-card"><span class="stat-label">Produits suivis</span><strong id="statProducts">4</strong><small>Produits actifs</small></article>
+          <article class="stat-card"><span class="stat-label">Produits réceptionnés</span><strong id="statEntries">0</strong><small>Produits avec entrée ce mois</small></article>
+          <article class="stat-card"><span class="stat-label">Produits consommés</span><strong id="statUsed">0</strong><small>Produits avec sortie ce mois</small></article>
+          <article class="stat-card accent-card"><span class="stat-label">Produits disponibles</span><strong id="statBalance">0 / 4</strong><small>Produits avec solde positif</small></article>
+        </div>
+        <article class="panel">
+          <div class="panel-heading"><div><h3>État mensuel des produits sensibles</h3><p>Le stock final d’un mois devient le stock initial du mois suivant.</p></div><button class="btn btn-secondary btn-small" data-go="reports">Voir le rapport</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Produit</th><th>Unité</th><th>Stock initial</th><th>Entrée</th><th>Sortie</th><th>Stock final</th><th>État</th></tr></thead><tbody id="stockTableBody"></tbody></table></div>
+        </article>
+        <article class="panel"><div class="panel-heading"><div><h3>Derniers mouvements</h3><p>Historique récent des réceptions et consommations.</p></div></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Quantité</th><th>Référence / motif</th></tr></thead><tbody id="recentTableBody"></tbody></table></div></article>
+      </section>
+
+      <section id="view-receipts" class="view-section hidden">
+        <div class="section-intro"><div><h2>Réception mensuelle</h2><p>Enregistrez la livraison mensuelle des quatre produits dans une seule opération.</p></div><span class="info-chip">Une réception par mois</span></div>
+        <div id="receiptAlreadyExists" class="notice warning hidden">Une réception est déjà enregistrée pour ce mois. Pour éviter les doubles entrées, une deuxième réception est bloquée.</div>
+        <form id="receiptForm" class="panel form-panel">
+          <div class="form-grid two-col">
+            <div class="field"><label for="receiptDate">Date de réception *</label><input id="receiptDate" type="date" required></div>
+            <div class="field"><label for="receiptSupplier">Fournisseur</label><input id="receiptSupplier" maxlength="120" placeholder="Nom du fournisseur"></div>
+            <div class="field"><label for="receiptReference">Bon de livraison / référence</label><input id="receiptReference" maxlength="100" placeholder="N° du document"></div>
+            <div class="field"><label for="receiptNote">Observation</label><input id="receiptNote" maxlength="250" placeholder="Observation facultative"></div>
+          </div>
+          <div class="subheading"><h3>Quantités réceptionnées</h3><span>Unité : Kg</span></div>
+          <div id="receiptProducts" class="quantity-grid"></div>
+          <div class="form-footer"><p class="muted">Laissez 0 pour un produit non livré. Les quantités positives sont enregistrées.</p><button class="btn btn-primary" type="submit">Enregistrer la réception</button></div>
+          <p id="receiptError" class="form-error" role="alert"></p>
+        </form>
+      </section>
+
+      <section id="view-consumption" class="view-section hidden">
+        <div class="section-intro"><div><h2>Enregistrer une consommation</h2><p>Chaque sortie est enregistrée séparément pour conserver l’historique.</p></div><span class="info-chip">Contrôle du stock disponible</span></div>
+        <form id="consumptionForm" class="panel form-panel">
+          <div class="form-grid two-col">
+            <div class="field"><label for="consumptionDate">Date de sortie *</label><input id="consumptionDate" type="date" required></div>
+            <div class="field"><label for="consumptionProduct">Produit *</label><select id="consumptionProduct" required></select></div>
+            <div class="field"><label for="consumptionQuantity">Quantité (Kg) *</label><input id="consumptionQuantity" type="number" min="0.001" step="0.001" required placeholder="0,000"></div>
+            <div class="field"><label for="consumptionDepartment">Atelier / service</label><input id="consumptionDepartment" maxlength="120" placeholder="Ex. : Atelier de teinture"></div>
+            <div class="field"><label for="consumptionReason">Motif / destination</label><input id="consumptionReason" maxlength="160" placeholder="Motif de la sortie"></div>
+            <div class="field"><label for="consumptionReference">Bon / référence</label><input id="consumptionReference" maxlength="100" placeholder="N° du document"></div>
+            <div class="field full-field"><label for="consumptionNote">Observation</label><textarea id="consumptionNote" rows="2" maxlength="300" placeholder="Observation facultative"></textarea></div>
+          </div>
+          <div class="form-footer"><p class="muted">Une sortie qui rendrait le stock négatif sera refusée.</p><button class="btn btn-primary" type="submit">Enregistrer la sortie</button></div>
+          <p id="consumptionError" class="form-error" role="alert"></p>
+        </form>
+      </section>
+
+      <section id="view-reports" class="view-section hidden">
+        <div class="section-intro"><div><h2>Rapport mensuel</h2><p>État récapitulatif prêt à imprimer ou à enregistrer en PDF.</p></div><div class="action-row"><button id="csvBtn" class="btn btn-secondary">Exporter CSV</button><button id="printBtn" class="btn btn-primary">Imprimer / PDF</button></div></div>
+        <article class="panel report-panel" id="printArea">
+          <div class="report-header"><div><p class="eyebrow">ÉTAT DE MOUVEMENT DES PRODUITS SENSIBLES</p><h2>Rapport mensuel de stock</h2></div><div class="report-date">Durant le mois de : <strong id="reportMonth"></strong></div></div>
+          <div class="table-wrap"><table class="report-table"><thead><tr><th>Produit</th><th>Unité</th><th>Stock initial</th><th>Entrée</th><th>Sortie</th><th>Stock final</th></tr></thead><tbody id="reportTableBody"></tbody></table></div>
+          <div class="report-foot"><span>Établi le : <strong id="reportGenerated"></strong></span><span>Visa du responsable : ____________________</span></div>
+        </article>
+      </section>
+
+      <section id="view-settings" class="view-section hidden">
+        <div class="section-intro"><div><h2>Stock initial</h2><p>Renseignez le stock de départ avant le premier mois d’utilisation du système.</p></div><span class="info-chip">À configurer une seule fois</span></div>
+        <div class="notice warning">Attention : le stock initial est la base de calcul de tout l’historique. Ne le modifiez qu’après vérification physique et validation du responsable.</div>
+        <form id="initialStockForm" class="panel form-panel"><div id="initialStockFields" class="quantity-grid"></div><div class="form-footer"><p class="muted">Valeurs en kilogrammes (Kg).</p><button class="btn btn-primary" type="submit">Enregistrer les stocks initiaux</button></div><p id="initialError" class="form-error" role="alert"></p></form>
+      </section>
+
+      <footer class="app-footer">Gestion des produits chimiques sensibles <span>•</span> Les données sont conservées dans Google Sheets.</footer>
+    </main>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
