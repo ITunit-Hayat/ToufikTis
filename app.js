@@ -6,7 +6,17 @@ const PRODUCT_FALLBACK = [
   { id: 'hydrosulfite', name: 'Hydrosulfite', unit: 'Kg', active: true },
   { id: 'soude-caustique', name: 'Soude caustique', unit: 'Kg', active: true },
   { id: 'eau-oxygenee', name: 'Eau oxygénée', unit: 'Kg', active: true },
-  { id: 'acide-acetique', name: 'Acide acétique', unit: 'Kg', active: true }
+  { id: 'acide-acetique', name: 'Acide acétique', unit: 'Kg', active: true },
+  { id: 'alpaflame-sco', name: 'ALPAFLAME SCO', unit: 'Kg', active: true },
+  { id: 'alpaguard-fx6', name: 'ALPAGUARD FX6', unit: 'Kg', active: true },
+  { id: 'alpret-vam', name: 'ALPRET VAM', unit: 'Kg', active: true },
+  { id: 'alpadet-lf', name: 'ALPADET LF', unit: 'Kg', active: true },
+  { id: 'alpagal-ipn', name: 'ALPAGAL IPN', unit: 'Kg', active: true },
+  { id: 'sel-adoucisseur', name: 'SEL ADOUCISSEUR', unit: 'Kg', active: true },
+  { id: 'alpawet-fn', name: 'ALPAWET FN', unit: 'Kg', active: true },
+  { id: 'carbonate-de-soude', name: 'CARBONATE DE SOUDE', unit: 'Kg', active: true },
+  { id: 'sel-marine', name: 'SEL MARINE', unit: 'Kg', active: true },
+  { id: 'alpasperse-nbo', name: 'ALPASPERSÉ NBO', unit: 'Kg', active: true }
 ];
 
 function currentMonth() { return localDate().slice(0, 7); }
