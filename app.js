@@ -67,15 +67,15 @@ function openEditRecord(record){
   byId('editProduct').value=product?product.name:record.product_id;
   byId('editProduct').disabled=true;
   if(record.type==='entry'){
-    byId('editTypeLabel').textContent='تعديل استقبال';
-    byId('editExtraLabel').textContent='المورد / المرجع';
+    byId('editTypeLabel').textContent='Modifier réception';
+    byId('editExtraLabel').textContent='Fournisseur / Référence';
     byId('editExtraValue').value=record.supplier||record.reference||'';
     byId('editExtraGroup').classList.remove('hidden');
     byId('editReasonGroup').classList.add('hidden');
     byId('editDepartmentGroup').classList.add('hidden');
   }else{
-    byId('editTypeLabel').textContent='تعديل استهلاك';
-    byId('editExtraLabel').textContent='السبب / الوجهة';
+    byId('editTypeLabel').textContent='Modifier consommation';
+    byId('editExtraLabel').textContent='Motif / Destination';
     byId('editExtraValue').value=record.reason||record.department||'';
     byId('editExtraGroup').classList.remove('hidden');
     byId('editReasonGroup').classList.add('hidden');
@@ -95,7 +95,7 @@ async function saveEditRecord(){
   const date=byId('editDate').value;
   const quantity=num(byId('editQuantity').value);
   const extra=byId('editExtraValue').value.trim();
-  if(!date||quantity<=0){byId('editError').textContent='تأكد من التاريخ والكمية.';return;}
+  if(!date||quantity<=0){byId('editError').textContent='Vérifiez la date et la quantité.';return;}
   const payload={type,record_id:id,date,quantity};
   if(type==='receipt'){payload.supplier=extra;}
   else{payload.reason=extra;payload.department=byId('editDepartmentValue')?byId('editDepartmentValue').value:'';}
@@ -104,7 +104,7 @@ async function saveEditRecord(){
     await api('update_record',payload);
     closeEditRecord();
     await loadData();
-    showMessage('تم تعديل السجل بنجاح.','success');
+    showMessage('Enregistrement modifié avec succès.','success');
   }catch(err){
     byId('editError').textContent=err.message;
   }finally{
@@ -163,6 +163,20 @@ function renderReport() {
   byId('reportGenerated').textContent=localDate();
   byId('reportTableBody').innerHTML=rows.map(r=>`<tr><td>${escapeHtml(r.product.name)}</td><td>${escapeHtml(r.product.unit)}</td><td>${fmt(r.entries)}</td><td>${fmt(r.exits)}</td><td><strong>${fmt(r.closing)}</strong></td></tr>`).join('');
 }
+function computeCurrentStock(){
+  const map={};
+  state.products.forEach(p=>map[p.id]=0);
+  state.history.forEach(m=>{
+    if(!map[m.product_id])map[m.product_id]=0;
+    map[m.product_id]+=(m.type==='entry'?num(m.quantity):-num(m.quantity));
+  });
+  return map;
+}
+function stockStatusText(q){
+  if(q>0)return {text:'Disponible',cls:'stock-ok'};
+  if(q===0)return {text:'Épuisé',cls:'stock-empty'};
+  return {text:'Déficit',cls:'stock-deficit'};
+}
 function groupByPeriod(movements, group){
   const groups={};
   movements.forEach(m=>{
@@ -179,24 +193,43 @@ function groupByPeriod(movements, group){
 function renderHistory(){
   const group=state.historyGroup;
   const grouped=groupByPeriod(state.history, group);
+  const currentStock=computeCurrentStock();
   let html='';
   let totalIn=0, totalOut=0;
-  grouped.forEach(([period, items])=>{
-    let periodIn=0, periodOut=0;
-    items.forEach(m=>{
-      if(m.type==='entry'){periodIn+=num(m.quantity); totalIn+=num(m.quantity);}
-      else{periodOut+=num(m.quantity); totalOut+=num(m.quantity);}
-    });
-    html+=`<div class="history-group"><h4>${escapeHtml(period)} — الداخل: ${fmt(periodIn)} كغ، الخارج: ${fmt(periodOut)} كغ، الرصيد: ${fmt(periodIn-periodOut)} كغ</h4>`;
-    html+=`<table class="history-table"><thead><tr><th>التاريخ والوقت</th><th>النوع</th><th>المنتج</th><th>الكمية (Kg)</th><th>التفاصيل</th></tr></thead><tbody>`;
-    items.forEach(m=>{
-      const created = m.created_at ? new Date(m.created_at).toLocaleString('ar-SA',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : (m.date||'');
-      const details = m.type==='entry' ? `المورد: ${escapeHtml(m.supplier)} ${m.reference?'— ref: '+escapeHtml(m.reference):''}` : `الورشة: ${escapeHtml(m.department)} ${m.reason?'— السبب: '+escapeHtml(m.reason):''}`;
-      html+=`<tr><td>${escapeHtml(created)}</td><td><span class="movement-tag ${m.type}">${m.type==='entry'?'دخل':'خرج'}</span></td><td>${escapeHtml(m.product_name)}</td><td class="quantity">${fmt(m.quantity)} kg</td><td>${details}</td></tr>`;
-    });
-    html+=`</tbody></table></div>`;
+  // État actuel du stock par produit
+  html+=`<div class="history-summary"><h3>État actuel du stock</h3><div class="stock-grid">`;
+  state.products.filter(p=>p.active!==false).forEach(p=>{
+    const q=currentStock[p.id]||0;
+    const st=stockStatusText(q);
+    html+=`<div class="stat-card"><div>${escapeHtml(p.name)}</div><div class="quantity"><strong>${fmt(q)} ${escapeHtml(p.unit||'Kg')}</strong></div><span class="balance-pill ${st.cls}">${st.text}</span></div>`;
   });
-  html = `<div class="history-summary"><div class="stat-card"><span>مجموع الداخل</span><strong>${fmt(totalIn)} kg</strong></div><div class="stat-card"><span>مجموع الخارج</span><strong>${fmt(totalOut)} kg</strong></div><div class="stat-card accent-card"><span>صافي الرصيد</span><strong>${fmt(totalIn-totalOut)} kg</strong></div></div>${grouped.length?html:'<div class="empty-state">لا توجد حركات مسجلة.</div>'}`;
+  html+=`</div></div>`;
+  // Totaux
+  grouped.forEach(([period, items])=>{
+    items.forEach(m=>{
+      if(m.type==='entry'){totalIn+=num(m.quantity);} else{totalOut+=num(m.quantity);}
+    });
+  });
+  html+=`<div class="history-summary totals"><div class="stat-card"><span>Total entrées</span><strong>${fmt(totalIn)} kg</strong></div><div class="stat-card"><span>Total sorties</span><strong>${fmt(totalOut)} kg</strong></div><div class="stat-card accent-card"><span>Solde net</span><strong>${fmt(totalIn-totalOut)} kg</strong></div></div>`;
+  // Détail par période
+  if(grouped.length===0){
+    html+=`<div class="empty-state">Aucun mouvement enregistré.</div>`;
+  }else{
+    grouped.forEach(([period, items])=>{
+      let periodIn=0, periodOut=0;
+      items.forEach(m=>{
+        if(m.type==='entry'){periodIn+=num(m.quantity);} else{periodOut+=num(m.quantity);}
+      });
+      html+=`<div class="history-group"><h4>${escapeHtml(period)} — Entrées: ${fmt(periodIn)} kg, Sorties: ${fmt(periodOut)} kg, Solde: ${fmt(periodIn-periodOut)} kg</h4>`;
+      html+=`<table class="history-table"><thead><tr><th>Date et heure</th><th>Type</th><th>Produit</th><th>Quantité (kg)</th><th>Détails</th></tr></thead><tbody>`;
+      items.forEach(m=>{
+        const created = m.created_at ? new Date(m.created_at).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : (m.date||'');
+        const details = m.type==='entry' ? `Fournisseur: ${escapeHtml(m.supplier)} ${m.reference?'— Réf: '+escapeHtml(m.reference):''}` : `Atelier: ${escapeHtml(m.department)} ${m.reason?'— Motif: '+escapeHtml(m.reason):''}`;
+        html+=`<tr><td>${escapeHtml(created)}</td><td><span class="movement-tag ${m.type}">${m.type==='entry'?'Entrée':'Sortie'}</span></td><td>${escapeHtml(m.product_name)}</td><td class="quantity">${fmt(m.quantity)} kg</td><td>${details}</td></tr>`;
+      });
+      html+=`</tbody></table></div>`;
+    });
+  }
   byId('historyContent').innerHTML=html;
 }
 function renderAll() { byId('monthPicker').value=state.month; renderProductSelectors(); renderDashboard(); renderReceiptState(); renderReport(); renderHistory(); }
