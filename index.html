@@ -33,7 +33,8 @@
         <button class="nav-link" data-view="receipts"><span>↓</span> Réception mensuelle</button>
         <button class="nav-link" data-view="consumption"><span>↑</span> Consommation</button>
         <button class="nav-link" data-view="reports"><span>▤</span> Rapports</button>
-        <button class="nav-link" data-view="settings"><span>⚙</span> Stock initial</button>
+        <button class="nav-link" data-view="history"><span>📋</span> السجل والحركات</button>
+
       </nav>
       <div class="sidebar-bottom">
         <div class="secure-note"><span class="status-dot"></span><span>Session sécurisée</span></div>
@@ -64,8 +65,8 @@
           <article class="stat-card accent-card"><span class="stat-label">Produits disponibles</span><strong id="statBalance">0 / 4</strong><small>Produits avec solde positif</small></article>
         </div>
         <article class="panel">
-          <div class="panel-heading"><div><h3>État mensuel des produits sensibles</h3><p>Le stock final d’un mois devient le stock initial du mois suivant.</p></div><button class="btn btn-secondary btn-small" data-go="reports">Voir le rapport</button></div>
-          <div class="table-wrap"><table><thead><tr><th>Produit</th><th>Unité</th><th>Stock initial</th><th>Entrée</th><th>Sortie</th><th>Stock final</th><th>État</th></tr></thead><tbody id="stockTableBody"></tbody></table></div>
+          <div class="panel-heading"><div><h3>État mensuel des produits sensibles</h3><p>Le solde est calculé à partir des mouvements enregistrés.</p></div><button class="btn btn-secondary btn-small" data-go="reports">Voir le rapport</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Produit</th><th>Unité</th><th>Entrée</th><th>Sortie</th><th>Stock final</th><th>État</th></tr></thead><tbody id="stockTableBody"></tbody></table></div>
         </article>
         <article class="panel"><div class="panel-heading"><div><h3>Derniers mouvements</h3><p>Historique récent des réceptions et consommations.</p></div></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Quantité</th><th>Référence / motif</th></tr></thead><tbody id="recentTableBody"></tbody></table></div></article>
       </section>
@@ -108,17 +109,21 @@
         <div class="section-intro"><div><h2>Rapport mensuel</h2><p>État récapitulatif prêt à imprimer ou à enregistrer en PDF.</p></div><div class="action-row"><button id="csvBtn" class="btn btn-secondary">Exporter CSV</button><button id="printBtn" class="btn btn-primary">Imprimer / PDF</button></div></div>
         <article class="panel report-panel" id="printArea">
           <div class="report-header"><div><p class="eyebrow">ÉTAT DE MOUVEMENT DES PRODUITS SENSIBLES</p><h2>Rapport mensuel de stock</h2></div><div class="report-date">Durant le mois de : <strong id="reportMonth"></strong></div></div>
-          <div class="table-wrap"><table class="report-table"><thead><tr><th>Produit</th><th>Unité</th><th>Stock initial</th><th>Entrée</th><th>Sortie</th><th>Stock final</th></tr></thead><tbody id="reportTableBody"></tbody></table></div>
+          <div class="table-wrap"><table class="report-table"><thead><tr><th>Produit</th><th>Unité</th><th>Entrée</th><th>Sortie</th><th>Stock final</th></tr></thead><tbody id="reportTableBody"></tbody></table></div>
           <div class="report-foot"><span>Établi le : <strong id="reportGenerated"></strong></span><span>Visa du responsable : ____________________</span></div>
         </article>
       </section>
 
-      <section id="view-settings" class="view-section hidden">
-        <div class="section-intro"><div><h2>Stock initial</h2><p>Renseignez le stock de départ avant le premier mois d’utilisation du système.</p></div><span class="info-chip">À configurer une seule fois</span></div>
-        <div class="notice warning">Attention : le stock initial est la base de calcul de tout l’historique. Ne le modifiez qu’après vérification physique et validation du responsable.</div>
-        <form id="initialStockForm" class="panel form-panel"><div id="initialStockFields" class="quantity-grid"></div><div class="form-footer"><p class="muted">Valeurs en kilogrammes (Kg).</p><button class="btn btn-primary" type="submit">Enregistrer les stocks initiaux</button></div><p id="initialError" class="form-error" role="alert"></p></form>
-      </section>
 
+
+      <section id="view-history" class="view-section hidden">
+        <div class="section-intro"><div><h2>السجل الكامل للحركات</h2><p>كل ما دخل وما خرج مع التاريخ والوقت والتفاصيل.</p></div><div class="history-group-toggle">
+          <button data-history-group="day" class="active">يوم</button>
+          <button data-history-group="month">شهر</button>
+          <button data-history-group="year">سنة</button>
+        </div></div>
+        <div id="historyContent"></div>
+      </section>
       <section id="editModal" class="modal" role="dialog" aria-modal="true" aria-label="تعديل السجل">
         <div class="modal-backdrop" onclick="closeEditRecord()"></div>
         <div class="modal-card">

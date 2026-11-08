@@ -10,16 +10,16 @@ const CI_SHEETS = {
   audit: 'Audit'
 };
 const CI_HEADERS = {
-  Products: ['id','name','unit','initial_stock','active'],
+  Products: ['id','name','unit','active'],
   Receipts: ['id','date','month','product_id','quantity','supplier','reference','note','created_at'],
   Consumption: ['id','date','month','product_id','quantity','department','reason','reference','note','created_at'],
   Audit: ['timestamp','action','record_id','product_id','quantity','date','details']
 };
 const CI_DEFAULT_PRODUCTS = [
-  ['hydrosulfite','Hydrosulfite','Kg',0,true],
-  ['soude-caustique','Soude caustique','Kg',0,true],
-  ['eau-oxygenee','Eau oxygénée','Kg',0,true],
-  ['acide-acetique','Acide acétique','Kg',0,true]
+  ['hydrosulfite','Hydrosulfite','Kg',true],
+  ['soude-caustique','Soude caustique','Kg',true],
+  ['eau-oxygenee','Eau oxygénée','Kg',true],
+  ['acide-acetique','Acide acétique','Kg',true]
 ];
 
 // Spreadsheet selected by the user. Script Property SPREADSHEET_ID, when set, takes precedence.
@@ -42,8 +42,8 @@ function doPost(e) {
       case 'bootstrap': data=ciBootstrap_(ss);break;
       case 'save_receipt_batch': data=ciSaveReceiptBatch_(ss,payload);break;
       case 'save_consumption': data=ciSaveConsumption_(ss,payload);break;
-      case 'update_initial_stock': data=ciUpdateInitialStock_(ss,payload);break;
       case 'update_record': data=ciUpdateRecord_(ss,payload);break;
+      case 'history': data=ciHistory_(ss,payload);break;
       default: throw new Error('Action inconnue.');
     }
     return ciJson_({ok:true,data:data});
@@ -82,7 +82,7 @@ function ciRows_(sh){
   const headers=values[0].map(String);
   return values.slice(1).filter(row=>row.some(v=>v!==''&&v!==null)).map(row=>{const o={};headers.forEach((h,i)=>o[h]=row[i]);return o;});
 }
-function ciProducts_(ss){return ciRows_(ss.getSheetByName(CI_SHEETS.products)).map(p=>({id:String(p.id),name:String(p.name),unit:String(p.unit||'Kg'),initial_stock:Number(p.initial_stock)||0,active:String(p.active).toLowerCase()!=='false'}));}
+function ciProducts_(ss){return ciRows_(ss.getSheetByName(CI_SHEETS.products)).map(p=>({id:String(p.id),name:String(p.name),unit:String(p.unit||'Kg'),initial_stock:0,active:String(p.active).toLowerCase()!=='false'}));}
 function ciTransactions_(ss){
   const receipts=ciRows_(ss.getSheetByName(CI_SHEETS.receipts)).map(r=>({id:String(r.id),date:ciDate_(r.date),month:String(r.month||ciDate_(r.date).slice(0,7)),product_id:String(r.product_id),quantity:Number(r.quantity)||0,supplier:String(r.supplier||''),reference:String(r.reference||''),note:String(r.note||''),created_at:String(r.created_at||'')}));
   const consumptions=ciRows_(ss.getSheetByName(CI_SHEETS.consumption)).map(r=>({id:String(r.id),date:ciDate_(r.date),month:String(r.month||ciDate_(r.date).slice(0,7)),product_id:String(r.product_id),quantity:Number(r.quantity)||0,department:String(r.department||''),reason:String(r.reason||''),reference:String(r.reference||''),note:String(r.note||''),created_at:String(r.created_at||'')}));
@@ -94,7 +94,7 @@ function ciNumber_(value,label,allowZero){const n=Number(value);if(!isFinite(n)|
 function ciProductMap_(ss){const map={};ciProducts_(ss).forEach(p=>map[p.id]=p);return map;}
 function ciValidateLedger_(products,receipts,consumptions){
   products.forEach(p=>{
-    let balance=Number(p.initial_stock)||0;
+    let balance=0;
     const moves=[];
     receipts.filter(x=>x.product_id===p.id).forEach(x=>moves.push({date:x.date,type:0,q:x.quantity}));
     consumptions.filter(x=>x.product_id===p.id).forEach(x=>moves.push({date:x.date,type:1,q:x.quantity}));
@@ -121,16 +121,6 @@ function ciSaveConsumption_(ss,payload){
   const row=[Utilities.getUuid(),date,date.slice(0,7),id,q,String(payload.department||''),String(payload.reason||''),String(payload.reference||''),String(payload.note||''),new Date().toISOString()];
   const sh=ss.getSheetByName(CI_SHEETS.consumption);sh.appendRow(row);ciAudit_(ss,'CONSOMMATION',row[0],id,q,date,String(payload.reason||payload.department||''));
   return {id:row[0],date:date,product_id:id,quantity:q};
-}
-function ciUpdateInitialStock_(ss,payload){
-  const stocks=Array.isArray(payload.stocks)?payload.stocks:[];if(!stocks.length)throw new Error('Aucun stock initial fourni.');
-  const sh=ss.getSheetByName(CI_SHEETS.products);const products=ciProducts_(ss);const map={};products.forEach(p=>map[p.id]=p);
-  stocks.forEach(s=>{const id=String(s.product_id||'');if(!map[id])throw new Error('Produit inconnu.');map[id].initial_stock=ciNumber_(s.quantity,'Stock initial',true);});
-  const t=ciTransactions_(ss);ciValidateLedger_(Object.keys(map).map(id=>map[id]),t.receipts,t.consumptions);
-  const all=ciRows_(sh);const headers=CI_HEADERS.Products;const idCol=headers.indexOf('id')+1;const stockCol=headers.indexOf('initial_stock')+1;
-  Object.keys(map).forEach(id=>{const row=all.findIndex(p=>String(p.id)===id);if(row>=0)sh.getRange(row+2,stockCol).setValue(map[id].initial_stock);});
-  ciAudit_(ss,'STOCK_INITIAL','', '', '', '', 'Mise à jour des stocks initiaux');
-  return {updated:stocks.length};
 }
 function ciUpdateRecord_(ss,payload){
   const type=String(payload.type||'');
@@ -168,5 +158,43 @@ function ciUpdateRecord_(ss,payload){
   }
   ciAudit_(ss,type==='receipt'?'UPDATE_RECEPTION':'UPDATE_CONSUMPTION',id,payload.product_id||'',updates.quantity||0,updates.date||'','تعديل سجل '+type);
   return {updated:true,id:id,changes:updates};
+}
+function ciHistory_(ss,payload){
+  const t=ciTransactions_(ss);
+  const products=ciProductMap_(ss);
+  const movements=[];
+  t.receipts.forEach(r=>{
+    movements.push({
+      id:r.id,
+      date:r.date,
+      month:r.month,
+      type:'entry',
+      product_id:r.product_id,
+      product_name:products[r.product_id]?products[r.product_id].name:r.product_id,
+      quantity:Number(r.quantity)||0,
+      supplier:String(r.supplier||''),
+      reference:String(r.reference||''),
+      note:String(r.note||''),
+      created_at:String(r.created_at||'')
+    });
+  });
+  t.consumptions.forEach(r=>{
+    movements.push({
+      id:r.id,
+      date:r.date,
+      month:r.month,
+      type:'exit',
+      product_id:r.product_id,
+      product_name:products[r.product_id]?products[r.product_id].name:r.product_id,
+      quantity:Number(r.quantity)||0,
+      department:String(r.department||''),
+      reason:String(r.reason||''),
+      reference:String(r.reference||''),
+      note:String(r.note||''),
+      created_at:String(r.created_at||'')
+    });
+  });
+  movements.sort((a,b)=>(b.created_at||b.date||'').localeCompare(a.created_at||a.date||''));
+  return {movements:movements,products:ciProducts_(ss)};
 }
 

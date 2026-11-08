@@ -1,12 +1,12 @@
 'use strict';
 
-const state = { products: [], receipts: [], consumptions: [], month: currentMonth(), view: 'dashboard', busy: false, editing: null };
+const state = { products: [], receipts: [], consumptions: [], history: [], month: currentMonth(), view: 'dashboard', busy: false, editing: null, historyGroup: 'month' };
 const byId = (id) => document.getElementById(id);
 const PRODUCT_FALLBACK = [
-  { id: 'hydrosulfite', name: 'Hydrosulfite', unit: 'Kg', initial_stock: 0, active: true },
-  { id: 'soude-caustique', name: 'Soude caustique', unit: 'Kg', initial_stock: 0, active: true },
-  { id: 'eau-oxygenee', name: 'Eau oxygénée', unit: 'Kg', initial_stock: 0, active: true },
-  { id: 'acide-acetique', name: 'Acide acétique', unit: 'Kg', initial_stock: 0, active: true }
+  { id: 'hydrosulfite', name: 'Hydrosulfite', unit: 'Kg', active: true },
+  { id: 'soude-caustique', name: 'Soude caustique', unit: 'Kg', active: true },
+  { id: 'eau-oxygenee', name: 'Eau oxygénée', unit: 'Kg', active: true },
+  { id: 'acide-acetique', name: 'Acide acétique', unit: 'Kg', active: true }
 ];
 
 function currentMonth() { return localDate().slice(0, 7); }
@@ -41,6 +41,8 @@ async function loadData() {
     const data = await api('bootstrap');
     state.products = Array.isArray(data.products) && data.products.length ? data.products : PRODUCT_FALLBACK;
     state.receipts = data.receipts || []; state.consumptions = data.consumptions || [];
+    const hist = await api('history');
+    state.history = Array.isArray(hist.movements) ? hist.movements : [];
     renderAll();
   } catch (error) {
     if (/session|authentification|401/i.test(error.message)) { byId('appShell').classList.add('hidden'); byId('loginScreen').classList.remove('hidden'); }
@@ -114,7 +116,7 @@ function calculateProduct(product, month) {
   const movements=movementsFor(product.id);
   const before=movements.filter(m=>m.date<start);
   const during=movements.filter(m=>m.date>=start && m.date<end);
-  const opening=num(product.initial_stock)+before.reduce((s,m)=>s+(m.type==='entry'?num(m.quantity):-num(m.quantity)),0);
+  const opening=0+before.reduce((s,m)=>s+(m.type==='entry'?num(m.quantity):-num(m.quantity)),0);
   const entries=during.filter(m=>m.type==='entry').reduce((s,m)=>s+num(m.quantity),0);
   const exits=during.filter(m=>m.type==='exit').reduce((s,m)=>s+num(m.quantity),0);
   return {opening,entries,exits,closing:opening+entries-exits};
@@ -127,7 +129,20 @@ function renderDashboard() {
   byId('statEntries').textContent=rows.filter(r=>r.entries>0).length;
   byId('statUsed').textContent=rows.filter(r=>r.exits>0).length;
   byId('statBalance').textContent=`${rows.filter(r=>r.closing>0).length} / ${rows.length}`;
-  byId('stockTableBody').innerHTML=rows.map(r=>`<tr><td class="product-name">${escapeHtml(r.product.name)}</td><td>${escapeHtml(r.product.unit)}</td><td class="quantity">${fmt(r.opening)}</td><td class="quantity">${fmt(r.entries)}</td><td class="quantity">${fmt(r.exits)}</td><td class="quantity">${fmt(r.closing)}</td><td><span class="balance-pill ${r.closing<=0?'low':''}">${r.closing<=0?'Stock nul':'Disponible'}</span></td></tr>`).join('') || '<tr><td colspan="7" class="empty-state">Aucun produit actif.</td></tr>';
+  const emptyCount=rows.filter(r=>r.closing===0).length;
+  const deficitCount=rows.filter(r=>r.closing<0).length;
+  const okCount=rows.filter(r=>r.closing>0).length;
+  const msg=[];
+  if(emptyCount>0)msg.push(`${emptyCount} منتج فارغ`);
+  if(deficitCount>0)msg.push(`${deficitCount} منتج ناقص`);
+  if(okCount===rows.length && rows.length>0)msg.push('جميع المنتجات متوفرة');
+  byId('statProducts').title=msg.join('، ')||'';
+  byId('stockTableBody').innerHTML=rows.map(r=>{
+    const status = r.closing <= 0 ? (r.closing === 0 ? 'vide' : 'deficit') : 'ok';
+    const statusText = r.closing === 0 ? 'فارغ' : r.closing < 0 ? 'ناقص' : 'متاح';
+    const statusClass = r.closing === 0 ? 'stock-empty' : r.closing < 0 ? 'stock-deficit' : 'stock-ok';
+    return `<tr><td class="product-name">${escapeHtml(r.product.name)}</td><td>${escapeHtml(r.product.unit)}</td><td class="quantity">${fmt(r.entries)}</td><td class="quantity">${fmt(r.exits)}</td><td class="quantity"><strong>${fmt(r.closing)}</strong></td><td><span class="balance-pill ${statusClass}">${statusText}</span></td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="empty-state">Aucun produit actif.</td></tr>';
   const recent=[...state.receipts.map(r=>({...r,type:'entry'})),...state.consumptions.map(r=>({...r,type:'exit'}))].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.created_at||'').localeCompare(a.created_at||'')).slice(0,8);
   byId('recentTableBody').innerHTML=recent.map(m=>`<tr><td>${escapeHtml(m.date)}</td><td><span class="movement-tag ${m.type}">${m.type==='entry'?'Entrée':'Sortie'}</span></td><td>${escapeHtml(productName(m.product_id))}</td><td class="quantity">${fmt(m.quantity)} kg</td><td>${escapeHtml(m.reference||m.reason||m.supplier||m.department||'—')}</td><td class="actions"><button class="btn-edit" data-id="${escapeHtml(m.id)}" data-type="${escapeHtml(m.type)}">تعديل</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty-state">Aucun mouvement enregistré pour le moment.</td></tr>';
 }
@@ -135,7 +150,6 @@ function renderProductSelectors() {
   const active=state.products.filter(p=>p.active!==false);
   byId('consumptionProduct').innerHTML=active.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
   byId('receiptProducts').innerHTML=active.map(p=>`<div class="quantity-item"><label for="receipt-${escapeHtml(p.id)}">${escapeHtml(p.name)} (Kg)</label><input id="receipt-${escapeHtml(p.id)}" data-product-id="${escapeHtml(p.id)}" type="number" min="0" step="0.001" value="0"><small>Quantité livrée ce mois</small></div>`).join('');
-  byId('initialStockFields').innerHTML=active.map(p=>`<div class="quantity-item"><label for="initial-${escapeHtml(p.id)}">${escapeHtml(p.name)} — Stock de départ (Kg)</label><input id="initial-${escapeHtml(p.id)}" data-product-id="${escapeHtml(p.id)}" type="number" min="0" step="0.001" value="${num(p.initial_stock)}"><small>Valeur de départ enregistrée : ${fmt(p.initial_stock)} Kg</small></div>`).join('');
 }
 function renderReceiptState() {
   const hasReceipt=state.receipts.some(r=>(r.month||r.date?.slice(0,7))===state.month);
@@ -147,14 +161,50 @@ function renderReport() {
   const rows=allCurrentRows();
   byId('reportMonth').textContent=monthTitle(state.month);
   byId('reportGenerated').textContent=localDate();
-  byId('reportTableBody').innerHTML=rows.map(r=>`<tr><td>${escapeHtml(r.product.name)}</td><td>${escapeHtml(r.product.unit)}</td><td>${fmt(r.opening)}</td><td>${fmt(r.entries)}</td><td>${fmt(r.exits)}</td><td><strong>${fmt(r.closing)}</strong></td></tr>`).join('');
+  byId('reportTableBody').innerHTML=rows.map(r=>`<tr><td>${escapeHtml(r.product.name)}</td><td>${escapeHtml(r.product.unit)}</td><td>${fmt(r.entries)}</td><td>${fmt(r.exits)}</td><td><strong>${fmt(r.closing)}</strong></td></tr>`).join('');
 }
-function renderAll() { byId('monthPicker').value=state.month; renderProductSelectors(); renderDashboard(); renderReceiptState(); renderReport(); }
+function groupByPeriod(movements, group){
+  const groups={};
+  movements.forEach(m=>{
+    const d=m.date||m.created_at||'';
+    let key='';
+    if(group==='day'){ key=d; }
+    else if(group==='month'){ key=d.slice(0,7); }
+    else if(group==='year'){ key=d.slice(0,4); }
+    if(!groups[key])groups[key]=[];
+    groups[key].push(m);
+  });
+  return Object.entries(groups).sort((a,b)=>b[0].localeCompare(a[0]));
+}
+function renderHistory(){
+  const group=state.historyGroup;
+  const grouped=groupByPeriod(state.history, group);
+  let html='';
+  let totalIn=0, totalOut=0;
+  grouped.forEach(([period, items])=>{
+    let periodIn=0, periodOut=0;
+    items.forEach(m=>{
+      if(m.type==='entry'){periodIn+=num(m.quantity); totalIn+=num(m.quantity);}
+      else{periodOut+=num(m.quantity); totalOut+=num(m.quantity);}
+    });
+    html+=`<div class="history-group"><h4>${escapeHtml(period)} — الداخل: ${fmt(periodIn)} كغ، الخارج: ${fmt(periodOut)} كغ، الرصيد: ${fmt(periodIn-periodOut)} كغ</h4>`;
+    html+=`<table class="history-table"><thead><tr><th>التاريخ والوقت</th><th>النوع</th><th>المنتج</th><th>الكمية (Kg)</th><th>التفاصيل</th></tr></thead><tbody>`;
+    items.forEach(m=>{
+      const created = m.created_at ? new Date(m.created_at).toLocaleString('ar-SA',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : (m.date||'');
+      const details = m.type==='entry' ? `المورد: ${escapeHtml(m.supplier)} ${m.reference?'— ref: '+escapeHtml(m.reference):''}` : `الورشة: ${escapeHtml(m.department)} ${m.reason?'— السبب: '+escapeHtml(m.reason):''}`;
+      html+=`<tr><td>${escapeHtml(created)}</td><td><span class="movement-tag ${m.type}">${m.type==='entry'?'دخل':'خرج'}</span></td><td>${escapeHtml(m.product_name)}</td><td class="quantity">${fmt(m.quantity)} kg</td><td>${details}</td></tr>`;
+    });
+    html+=`</tbody></table></div>`;
+  });
+  html = `<div class="history-summary"><div class="stat-card"><span>مجموع الداخل</span><strong>${fmt(totalIn)} kg</strong></div><div class="stat-card"><span>مجموع الخارج</span><strong>${fmt(totalOut)} kg</strong></div><div class="stat-card accent-card"><span>صافي الرصيد</span><strong>${fmt(totalIn-totalOut)} kg</strong></div></div>${grouped.length?html:'<div class="empty-state">لا توجد حركات مسجلة.</div>'}`;
+  byId('historyContent').innerHTML=html;
+}
+function renderAll() { byId('monthPicker').value=state.month; renderProductSelectors(); renderDashboard(); renderReceiptState(); renderReport(); renderHistory(); }
 function navigate(view) {
   state.view=view;
   document.querySelectorAll('.view-section').forEach(el=>el.classList.toggle('hidden',el.id!==`view-${view}`));
   document.querySelectorAll('.nav-link').forEach(el=>el.classList.toggle('active',el.dataset.view===view));
-  const titles={dashboard:'Vue d’ensemble',receipts:'Réception mensuelle',consumption:'Consommation',reports:'Rapports',settings:'Stock initial'};
+  const titles={dashboard:'Vue d’ensemble',receipts:'Réception mensuelle',consumption:'Consommation',reports:'Rapports',history:'السجل والحركات'};
   byId('pageTitle').textContent=titles[view]||'Stock sensible';
   if(view==='receipts') renderReceiptState(); if(view==='reports') renderReport();
 }
@@ -180,14 +230,10 @@ byId('consumptionForm').addEventListener('submit',async e=>{
   if(!payload.date||!payload.product_id||payload.quantity<=0){setFormError('consumptionError','Vérifiez la date, le produit et la quantité.');return;}
   try{setBusy(true);await api('save_consumption',payload);byId('consumptionForm').reset();byId('consumptionDate').value=localDate();await loadData();navigate('dashboard');showMessage('Sortie enregistrée. Le stock a été recalculé.');}catch(err){setFormError('consumptionError',err.message);}finally{setBusy(false);}
 });
-byId('initialStockForm').addEventListener('submit',async e=>{
-  e.preventDefault();setFormError('initialError');
-  const stocks=[...document.querySelectorAll('#initialStockFields input')].map(input=>({product_id:input.dataset.productId,quantity:num(input.value)}));
-  try{setBusy(true);await api('update_initial_stock',{stocks});await loadData();showMessage('Stocks initiaux mis à jour.');}catch(err){setFormError('initialError',err.message);}finally{setBusy(false);}
-});
+
 byId('printBtn').addEventListener('click',()=>{renderReport();window.print();});
 byId('csvBtn').addEventListener('click',()=>{
-  const rows=allCurrentRows();const data=[['Produit','Unité','Stock initial','Entrée','Sortie','Stock final'],...rows.map(r=>[r.product.name,r.product.unit,r.opening,r.entries,r.exits,r.closing])];
+  const rows=allCurrentRows();const data=[['Produit','Unité','Entrée','Sortie','Stock final'],...rows.map(r=>[r.product.name,r.product.unit,r.entries,r.exits,r.closing])];
   const csv='\uFEFF'+data.map(row=>row.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\r\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`rapport-stock-sensible-${state.month}.csv`;a.click();URL.revokeObjectURL(url);
 });
@@ -204,4 +250,12 @@ document.addEventListener('click',e=>{
     const record=[...state.receipts,...state.consumptions].find(r=>r.id===btn.dataset.id);
     if(record){record.type=btn.dataset.type==='entry'?'entry':'exit';openEditRecord(record);}
   }
+});
+document.querySelectorAll('[data-history-group]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    state.historyGroup=btn.dataset.historyGroup;
+    document.querySelectorAll('[data-history-group]').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    renderHistory();
+  });
 });
