@@ -43,6 +43,7 @@ function doPost(e) {
       case 'save_receipt_batch': data=ciSaveReceiptBatch_(ss,payload);break;
       case 'save_consumption': data=ciSaveConsumption_(ss,payload);break;
       case 'update_initial_stock': data=ciUpdateInitialStock_(ss,payload);break;
+      case 'update_record': data=ciUpdateRecord_(ss,payload);break;
       default: throw new Error('Action inconnue.');
     }
     return ciJson_({ok:true,data:data});
@@ -130,4 +131,41 @@ function ciUpdateInitialStock_(ss,payload){
   Object.keys(map).forEach(id=>{const row=all.findIndex(p=>String(p.id)===id);if(row>=0)sh.getRange(row+2,stockCol).setValue(map[id].initial_stock);});
   ciAudit_(ss,'STOCK_INITIAL','', '', '', '', 'Mise à jour des stocks initiaux');
   return {updated:stocks.length};
+}
+function ciUpdateRecord_(ss,payload){
+  const type=String(payload.type||''); // 'receipt' أو 'consumption'
+  const id=String(payload.record_id||'');
+  if(!id)throw new Error('معرف السجل مطلوب.');
+  const sheetName=type==='receipt'?CI_SHEETS.receipts:type==='consumption'?CI_SHEETS.consumption:null;
+  if(!sheetName)throw new Error('نوع السجل غير صحيح.');
+  const sh=ss.getSheetByName(sheetName);
+  const rows=ciRows_(sh);
+  const rowIndex=rows.findIndex(r=>String(r.id)===id);
+  if(rowIndex===-1)throw new Error('السجل غير موجود.');
+  const actualRow=rowIndex+2;
+  const headerKey=sheetName===CI_SHEETS.receipts?'Receipts':'Consumption';
+  const headers=CI_HEADERS[headerKey];
+  const updates={};
+  if(payload.quantity!==undefined)updates.quantity=ciNumber_(payload.quantity,'الكمية',false);
+  if(payload.date!==undefined){
+    const d=ciValidateDate_(String(payload.date));
+    updates.date=d;
+    updates.month=d.slice(0,7);
+  }
+  if(payload.supplier!==undefined)updates.supplier=String(payload.supplier||'');
+  if(payload.reference!==undefined)updates.reference=String(payload.reference||'');
+  if(payload.note!==undefined)updates.note=String(payload.note||'');
+  if(payload.department!==undefined)updates.department=String(payload.department||'');
+  if(payload.reason!==undefined)updates.reason=String(payload.reason||'');
+  if(Object.keys(updates).length===0)throw new Error('لا توجد بيانات للتعديل.');
+  Object.entries(updates).forEach(([key,value])=>{
+    const col=headers.indexOf(key)+1;
+    if(col>0)sh.getRange(actualRow,col).setValue(value);
+  });
+  if(type==='consumption'||type==='receipt'){
+    const t=ciTransactions_(ss);
+    ciValidateLedger_(ciProducts_(ss),t.receipts,t.consumptions);
+  }
+  ciAudit_(ss,type==='receipt'?'UPDATE_RECEPTION':'UPDATE_CONSUMPTION',id,payload.product_id||'',updates.quantity||0,updates.date||'','تعديل سجل '+type);
+  return {updated:true,type:id,changes:updates};
 }

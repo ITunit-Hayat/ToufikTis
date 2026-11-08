@@ -119,6 +119,48 @@
         <form id="initialStockForm" class="panel form-panel"><div id="initialStockFields" class="quantity-grid"></div><div class="form-footer"><p class="muted">Valeurs en kilogrammes (Kg).</p><button class="btn btn-primary" type="submit">Enregistrer les stocks initiaux</button></div><p id="initialError" class="form-error" role="alert"></p></form>
       </section>
 
+      <section id="editModal" class="modal" role="dialog" aria-modal="true" aria-label="تعديل السجل">
+        <div class="modal-backdrop" onclick="closeEditRecord()"></div>
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3 id="editTypeLabel">تعديل السجل</h3>
+            <button id="editCloseBtn" class="modal-close">&times;</button>
+          </div>
+          <form id="editForm" class="modal-body">
+            <input type="hidden" id="editRecordType">
+            <input type="hidden" id="editRecordId">
+            <div class="field">
+              <label for="editProduct">المنتج</label>
+              <input id="editProduct" type="text" readonly>
+            </div>
+            <div class="field">
+              <label for="editDate">التاريخ *</label>
+              <input id="editDate" type="date" required>
+            </div>
+            <div class="field">
+              <label for="editQuantity">الكمية (Kg) *</label>
+              <input id="editQuantity" type="number" min="0.001" step="0.001" required placeholder="0,000">
+            </div>
+            <div id="editExtraGroup" class="field">
+              <label id="editExtraLabel">معلومات إضافية</label>
+              <input id="editExtraValue" type="text" maxlength="160">
+            </div>
+            <div id="editDepartmentGroup" class="field hidden">
+              <label for="editDepartmentValue">الورشة / الخدمة</label>
+              <input id="editDepartmentValue" type="text" maxlength="120">
+            </div>
+            <div id="editReasonGroup" class="field hidden">
+              <label for="editReasonValue">السبب / الوجهة</label>
+              <input id="editReasonValue" type="text" maxlength="160">
+            </div>
+            <p id="editError" class="form-error" role="alert"></p>
+            <div class="modal-actions">
+              <button type="button" id="editCancelBtn" class="btn btn-secondary">إلغاء</button>
+              <button type="submit" class="btn btn-primary">حفظ التعديل</button>
+            </div>
+          </form>
+        </div>
+      </section>
       <footer class="app-footer">Gestion des produits chimiques sensibles <span>•</span> Les données sont conservées dans Google Sheets.</footer>
     </main>
   </div>
