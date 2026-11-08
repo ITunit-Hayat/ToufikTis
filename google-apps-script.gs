@@ -133,7 +133,7 @@ function ciUpdateInitialStock_(ss,payload){
   return {updated:stocks.length};
 }
 function ciUpdateRecord_(ss,payload){
-  const type=String(payload.type||''); // 'receipt' أو 'consumption'
+  const type=String(payload.type||'');
   const id=String(payload.record_id||'');
   if(!id)throw new Error('معرف السجل مطلوب.');
   const sheetName=type==='receipt'?CI_SHEETS.receipts:type==='consumption'?CI_SHEETS.consumption:null;
@@ -167,5 +167,6 @@ function ciUpdateRecord_(ss,payload){
     ciValidateLedger_(ciProducts_(ss),t.receipts,t.consumptions);
   }
   ciAudit_(ss,type==='receipt'?'UPDATE_RECEPTION':'UPDATE_CONSUMPTION',id,payload.product_id||'',updates.quantity||0,updates.date||'','تعديل سجل '+type);
-  return {updated:true,type:id,changes:updates};
+  return {updated:true,id:id,changes:updates};
 }
+

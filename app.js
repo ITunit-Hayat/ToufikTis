@@ -1,6 +1,6 @@
 'use strict';
 
-const state = { products: [], receipts: [], consumptions: [], month: currentMonth(), view: 'dashboard', busy: false };
+const state = { products: [], receipts: [], consumptions: [], month: currentMonth(), view: 'dashboard', busy: false, editing: null };
 const byId = (id) => document.getElementById(id);
 const PRODUCT_FALLBACK = [
   { id: 'hydrosulfite', name: 'Hydrosulfite', unit: 'Kg', initial_stock: 0, active: true },
@@ -54,6 +54,61 @@ function movementsFor(productId) {
   state.consumptions.filter(r=>r.product_id===productId).forEach(r=>rows.push({...r,type:'exit'}));
   return rows;
 }
+function openEditRecord(record){
+  state.editing=record;
+  const modal=byId('editModal');
+  byId('editRecordType').value=record.type==='entry'?'receipt':'consumption';
+  byId('editRecordId').value=record.id;
+  byId('editDate').value=record.date||'';
+  byId('editQuantity').value=num(record.quantity);
+  const product=state.products.find(p=>p.id===record.product_id);
+  byId('editProduct').value=product?product.name:record.product_id;
+  byId('editProduct').disabled=true;
+  if(record.type==='entry'){
+    byId('editTypeLabel').textContent='تعديل استقبال';
+    byId('editExtraLabel').textContent='المورد / المرجع';
+    byId('editExtraValue').value=record.supplier||record.reference||'';
+    byId('editExtraGroup').classList.remove('hidden');
+    byId('editReasonGroup').classList.add('hidden');
+    byId('editDepartmentGroup').classList.add('hidden');
+  }else{
+    byId('editTypeLabel').textContent='تعديل استهلاك';
+    byId('editExtraLabel').textContent='السبب / الوجهة';
+    byId('editExtraValue').value=record.reason||record.department||'';
+    byId('editExtraGroup').classList.remove('hidden');
+    byId('editReasonGroup').classList.add('hidden');
+    byId('editDepartmentGroup').classList.add('hidden');
+  }
+  modal.classList.remove('hidden');
+}
+function closeEditRecord(){
+  state.editing=null;
+  byId('editModal').classList.add('hidden');
+  byId('editError').textContent='';
+}
+async function saveEditRecord(){
+  if(!state.editing)return;
+  const type=byId('editRecordType').value;
+  const id=byId('editRecordId').value;
+  const date=byId('editDate').value;
+  const quantity=num(byId('editQuantity').value);
+  const extra=byId('editExtraValue').value.trim();
+  if(!date||quantity<=0){byId('editError').textContent='تأكد من التاريخ والكمية.';return;}
+  const payload={type,record_id:id,date,quantity};
+  if(type==='receipt'){payload.supplier=extra;}
+  else{payload.reason=extra;payload.department=byId('editDepartmentValue')?byId('editDepartmentValue').value:'';}
+  try{
+    setBusy(true);
+    await api('update_record',payload);
+    closeEditRecord();
+    await loadData();
+    showMessage('تم تعديل السجل بنجاح.','success');
+  }catch(err){
+    byId('editError').textContent=err.message;
+  }finally{
+    setBusy(false);
+  }
+}
 function calculateProduct(product, month) {
   const start=monthStart(month), end=nextMonthStart(month);
   const movements=movementsFor(product.id);
@@ -74,7 +129,7 @@ function renderDashboard() {
   byId('statBalance').textContent=`${rows.filter(r=>r.closing>0).length} / ${rows.length}`;
   byId('stockTableBody').innerHTML=rows.map(r=>`<tr><td class="product-name">${escapeHtml(r.product.name)}</td><td>${escapeHtml(r.product.unit)}</td><td class="quantity">${fmt(r.opening)}</td><td class="quantity">${fmt(r.entries)}</td><td class="quantity">${fmt(r.exits)}</td><td class="quantity">${fmt(r.closing)}</td><td><span class="balance-pill ${r.closing<=0?'low':''}">${r.closing<=0?'Stock nul':'Disponible'}</span></td></tr>`).join('') || '<tr><td colspan="7" class="empty-state">Aucun produit actif.</td></tr>';
   const recent=[...state.receipts.map(r=>({...r,type:'entry'})),...state.consumptions.map(r=>({...r,type:'exit'}))].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.created_at||'').localeCompare(a.created_at||'')).slice(0,8);
-  byId('recentTableBody').innerHTML=recent.map(m=>`<tr><td>${escapeHtml(m.date)}</td><td><span class="movement-tag ${m.type}">${m.type==='entry'?'Entrée':'Sortie'}</span></td><td>${escapeHtml(productName(m.product_id))}</td><td class="quantity">${fmt(m.quantity)} kg</td><td>${escapeHtml(m.reference||m.reason||m.supplier||m.department||'—')}</td></tr>`).join('') || '<tr><td colspan="5" class="empty-state">Aucun mouvement enregistré pour le moment.</td></tr>';
+  byId('recentTableBody').innerHTML=recent.map(m=>`<tr><td>${escapeHtml(m.date)}</td><td><span class="movement-tag ${m.type}">${m.type==='entry'?'Entrée':'Sortie'}</span></td><td>${escapeHtml(productName(m.product_id))}</td><td class="quantity">${fmt(m.quantity)} kg</td><td>${escapeHtml(m.reference||m.reason||m.supplier||m.department||'—')}</td><td class="actions"><button class="btn-edit" data-id="${escapeHtml(m.id)}" data-type="${escapeHtml(m.type)}">تعديل</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty-state">Aucun mouvement enregistré pour le moment.</td></tr>';
 }
 function renderProductSelectors() {
   const active=state.products.filter(p=>p.active!==false);
@@ -138,3 +193,15 @@ byId('csvBtn').addEventListener('click',()=>{
 });
 
 byId('monthPicker').value=state.month;byId('receiptDate').value=localDate();byId('consumptionDate').value=localDate();
+
+byId('editForm').addEventListener('submit',async e=>{e.preventDefault();await saveEditRecord();});
+byId('editCancelBtn').addEventListener('click',closeEditRecord);
+byId('editCloseBtn').addEventListener('click',closeEditRecord);
+byId('editModal').addEventListener('click',e=>{if(e.target===byId('editModal'))closeEditRecord();});
+document.addEventListener('click',e=>{
+  const btn=e.target.closest('.btn-edit');
+  if(btn){
+    const record=[...state.receipts,...state.consumptions].find(r=>r.id===btn.dataset.id);
+    if(record){record.type=btn.dataset.type==='entry'?'entry':'exit';openEditRecord(record);}
+  }
+});
