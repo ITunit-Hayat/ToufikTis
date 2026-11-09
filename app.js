@@ -50,7 +50,8 @@ async function loadData() {
   try {
     const data = await api('bootstrap');
     state.products = Array.isArray(data.products) && data.products.length ? data.products : PRODUCT_FALLBACK;
-    state.receipts = data.receipts || []; state.consumptions = data.consumptions || [];
+    state.receipts = (data.receipts || []).map(r=>({...r,id:String(r.id)}));
+    state.consumptions = (data.consumptions || []).map(r=>({...r,id:String(r.id)}));
     const hist = await api('history');
     state.history = Array.isArray(hist.movements) ? hist.movements : [];
     renderAll();
@@ -116,7 +117,8 @@ async function saveEditRecord(){
   else{payload.reason=byId('editReasonValue').value.trim();payload.department=byId('editDepartmentValue').value.trim();}
   try{
     setBusy(true);
-    await api('update_record',payload);
+    const result=await api('update_record',payload);
+    if(!result||result.updated!==true)throw new Error('Le serveur n’a pas confirmé la modification.');
     closeEditRecord();
     await loadData();
     showMessage('Enregistrement modifié avec succès.','success');
@@ -295,8 +297,9 @@ byId('editModal').addEventListener('click',e=>{if(e.target===byId('editModal'))c
 document.addEventListener('click',e=>{
   const btn=e.target.closest('.btn-edit');
   if(btn){
-    const record=[...state.receipts,...state.consumptions].find(r=>r.id===btn.dataset.id);
-    if(record){record.type=btn.dataset.type==='entry'?'entry':'exit';openEditRecord(record);}
+    const source=btn.dataset.type==='entry'?state.receipts:state.consumptions;
+    const record=source.find(r=>String(r.id)===String(btn.dataset.id));
+    if(record){openEditRecord({...record,type:btn.dataset.type==='entry'?'entry':'exit'});}
   }
 });
 document.querySelectorAll('[data-history-group]').forEach(btn=>{

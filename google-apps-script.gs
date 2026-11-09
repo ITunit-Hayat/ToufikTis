@@ -145,7 +145,7 @@ function ciUpdateRecord_(ss,payload){
   if(!sheetName)throw new Error('نوع السجل غير صحيح.');
   const sh=ss.getSheetByName(sheetName);
   const rows=ciRows_(sh);
-  const rowIndex=rows.findIndex(r=>String(r.id)===id);
+  const rowIndex=rows.findIndex(r=>String(r.id).trim()===id.trim());
   if(rowIndex===-1)throw new Error('السجل غير موجود.');
   const actualRow=rowIndex+2;
   const headerKey=sheetName===CI_SHEETS.receipts?'Receipts':'Consumption';
@@ -171,7 +171,8 @@ function ciUpdateRecord_(ss,payload){
   ciValidateLedger_(ciProducts_(ss),receipts,consumptions);
   Object.entries(updates).forEach(([key,value])=>{
     const col=headers.indexOf(key)+1;
-    if(col>0)sh.getRange(actualRow,col).setValue(value);
+    if(col<=0)throw new Error('Colonne introuvable pour le champ : '+key);
+    sh.getRange(actualRow,col).setValue(value);
   });
   ciAudit_(ss,type==='receipt'?'UPDATE_RECEPTION':'UPDATE_CONSUMPTION',id,payload.product_id||'',updates.quantity||0,updates.date||'','تعديل سجل '+type);
   return {updated:true,id:id,changes:updates};
