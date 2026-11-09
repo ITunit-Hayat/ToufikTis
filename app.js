@@ -45,6 +45,7 @@ async function login(pin) {
   byId('loginScreen').classList.add('hidden'); byId('appShell').classList.remove('hidden');
   await loadData();
 }
+
 async function loadData() {
   setBusy(true);
   try {
@@ -58,8 +59,10 @@ async function loadData() {
   } catch (error) {
     if (/session|authentification|401/i.test(error.message)) { byId('appShell').classList.add('hidden'); byId('loginScreen').classList.remove('hidden'); }
     showMessage(error.message,'error');
+    throw error;
   } finally { setBusy(false); }
 }
+
 function productName(id) { return state.products.find(p=>p.id===id)?.name || id; }
 function movementsFor(productId) {
   const rows=[];
@@ -67,21 +70,27 @@ function movementsFor(productId) {
   state.consumptions.filter(r=>r.product_id===productId).forEach(r=>rows.push({...r,type:'exit'}));
   return rows;
 }
+
 function openEditRecord(record){
   state.editing=record;
   const modal=byId('editModal');
-  byId('editRecordType').value=record.type==='entry'?'receipt':'consumption';
+  const isEntry=record.type==='entry';
+  byId('editRecordType').value=isEntry?'receipt':'consumption';
   byId('editRecordId').value=record.id;
   byId('editDate').value=record.date||'';
   byId('editQuantity').value=num(record.quantity);
   const product=state.products.find(p=>p.id===record.product_id);
   byId('editProduct').value=product?product.name:record.product_id;
   byId('editProduct').disabled=true;
-  if(record.type==='entry'){
+  byId('editExtraValue').value='';
+  byId('editReferenceValue').value='';
+  byId('editDepartmentValue').value='';
+  byId('editReasonValue').value='';
+  setFormError('editError');
+  if(isEntry){
     byId('editTypeLabel').textContent='Modifier réception';
-    byId('editExtraLabel').textContent='Fournisseur / Référence';
-    byId('editExtraValue').value=record.supplier||'';
     byId('editExtraLabel').textContent='Fournisseur';
+    byId('editExtraValue').value=record.supplier||'';
     byId('editReferenceValue').value=record.reference||'';
     byId('editReferenceGroup').classList.remove('hidden');
     byId('editExtraGroup').classList.remove('hidden');
@@ -89,8 +98,8 @@ function openEditRecord(record){
     byId('editDepartmentGroup').classList.add('hidden');
   }else{
     byId('editTypeLabel').textContent='Modifier consommation';
-    byId('editReferenceGroup').classList.add('hidden');
-    byId('editExtraLabel').textContent='Motif / Destination';
+    byId('editReferenceValue').value=record.reference||'';
+    byId('editReferenceGroup').classList.remove('hidden');
     byId('editDepartmentValue').value=record.department||'';
     byId('editReasonValue').value=record.reason||'';
     byId('editExtraGroup').classList.add('hidden');
@@ -99,11 +108,13 @@ function openEditRecord(record){
   }
   modal.classList.remove('hidden');
 }
+
 function closeEditRecord(){
   state.editing=null;
   byId('editModal').classList.add('hidden');
   byId('editError').textContent='';
 }
+
 async function saveEditRecord(){
   if(!state.editing)return;
   const type=byId('editRecordType').value;
@@ -114,7 +125,7 @@ async function saveEditRecord(){
   if(!date||quantity<=0){byId('editError').textContent='Vérifiez la date et la quantité.';return;}
   const payload={type,record_id:id,date,quantity};
   if(type==='receipt'){payload.supplier=extra;payload.reference=byId('editReferenceValue').value.trim();}
-  else{payload.reason=byId('editReasonValue').value.trim();payload.department=byId('editDepartmentValue').value.trim();}
+  else{payload.reason=byId('editReasonValue').value.trim();payload.department=byId('editDepartmentValue').value.trim();payload.reference=byId('editReferenceValue').value.trim();}
   try{
     setBusy(true);
     const result=await api('update_record',payload);
@@ -128,17 +139,39 @@ async function saveEditRecord(){
     setBusy(false);
   }
 }
+
+async function deleteEditRecord() {
+  if(!state.editing)return;
+  const type=byId('editRecordType').value;
+  const id=byId('editRecordId').value;
+  if(!confirm('Êtes-vous sûr de vouloir supprimer définitivement cet enregistrement ?')) return;
+  try{
+    setBusy(true);
+    const result=await api('delete_record', {type, record_id: id});
+    if(!result||result.deleted!==true)throw new Error('Le serveur n’a pas confirmé la suppression.');
+    closeEditRecord();
+    await loadData();
+    showMessage('Enregistrement supprimé avec succès.','success');
+  }catch(err){
+    byId('editError').textContent=err.message;
+  }finally{
+    setBusy(false);
+  }
+}
+
 function calculateProduct(product, month) {
   const start=monthStart(month), end=nextMonthStart(month);
   const movements=movementsFor(product.id);
-  const before=movements.filter(m=>m.date<start);
   const during=movements.filter(m=>m.date>=start && m.date<end);
-  const opening=0+before.reduce((s,m)=>s+(m.type==='entry'?num(m.quantity):-num(m.quantity)),0);
+  const upToEnd=movements.filter(m=>m.date<end);
   const entries=during.filter(m=>m.type==='entry').reduce((s,m)=>s+num(m.quantity),0);
   const exits=during.filter(m=>m.type==='exit').reduce((s,m)=>s+num(m.quantity),0);
-  return {opening,entries,exits,closing:opening+entries-exits};
+  const closing=upToEnd.reduce((s,m)=>s+(m.type==='entry'?num(m.quantity):-num(m.quantity)),0);
+  return {entries,exits,closing};
 }
+
 function allCurrentRows() { return state.products.filter(p=>p.active!==false).map(p=>({product:p,...calculateProduct(p,state.month)})); }
+
 function renderDashboard() {
   const rows=allCurrentRows();
   byId('monthLabel').textContent=monthTitle(state.month);
@@ -150,36 +183,36 @@ function renderDashboard() {
   const deficitCount=rows.filter(r=>r.closing<0).length;
   const okCount=rows.filter(r=>r.closing>0).length;
   const msg=[];
-  if(emptyCount>0)msg.push(`${emptyCount} منتج فارغ`);
-  if(deficitCount>0)msg.push(`${deficitCount} منتج ناقص`);
-  if(okCount===rows.length && rows.length>0)msg.push('جميع المنتجات متوفرة');
-  byId('statProducts').title=msg.join('، ')||'';
+  if(emptyCount>0)msg.push(`${emptyCount} produit(s) épuisé(s)`);
+  if(deficitCount>0)msg.push(`${deficitCount} produit(s) en déficit`);
+  if(okCount===rows.length && rows.length>0)msg.push('Tous les produits sont disponibles');
+  byId('statProducts').title=msg.join(', ')||'';
   byId('stockTableBody').innerHTML=rows.map(r=>{
-    const status = r.closing <= 0 ? (r.closing === 0 ? 'vide' : 'deficit') : 'ok';
-    const statusText = r.closing === 0 ? 'فارغ' : r.closing < 0 ? 'ناقص' : 'متاح';
     const statusClass = r.closing === 0 ? 'stock-empty' : r.closing < 0 ? 'stock-deficit' : 'stock-ok';
+    const statusText = r.closing === 0 ? 'Épuisé' : r.closing < 0 ? 'Déficit' : 'Disponible';
     return `<tr><td class="product-name">${escapeHtml(r.product.name)}</td><td>${escapeHtml(r.product.unit)}</td><td class="quantity">${fmt(r.entries)}</td><td class="quantity">${fmt(r.exits)}</td><td class="quantity"><strong>${fmt(r.closing)}</strong></td><td><span class="balance-pill ${statusClass}">${statusText}</span></td></tr>`;
   }).join('') || '<tr><td colspan="6" class="empty-state">Aucun produit actif.</td></tr>';
   const recent=[...state.receipts.map(r=>({...r,type:'entry'})),...state.consumptions.map(r=>({...r,type:'exit'}))].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.created_at||'').localeCompare(a.created_at||'')).slice(0,8);
-  byId('recentTableBody').innerHTML=recent.map(m=>`<tr><td>${escapeHtml(m.date)}</td><td><span class="movement-tag ${m.type}">${m.type==='entry'?'Entrée':'Sortie'}</span></td><td>${escapeHtml(productName(m.product_id))}</td><td class="quantity">${fmt(m.quantity)} kg</td><td>${escapeHtml(m.reference||m.reason||m.supplier||m.department||'—')}</td><td class="actions"><button class="btn-edit" data-id="${escapeHtml(m.id)}" data-type="${escapeHtml(m.type)}">تعديل</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty-state">Aucun mouvement enregistré pour le moment.</td></tr>';
+  byId('recentTableBody').innerHTML=recent.map(m=>`<tr><td>${escapeHtml(m.date)}</td><td><span class="movement-tag ${m.type}">${m.type==='entry'?'Entrée':'Sortie'}</span></td><td>${escapeHtml(productName(m.product_id))}</td><td class="quantity">${fmt(m.quantity)} kg</td><td>${escapeHtml(m.reference||m.reason||m.supplier||m.department||'—')}</td><td class="actions"><button class="btn-edit" data-id="${escapeHtml(m.id)}" data-type="${escapeHtml(m.type)}">Modifier</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty-state">Aucun mouvement enregistré pour le moment.</td></tr>';
 }
+
 function renderProductSelectors() {
   const active=state.products.filter(p=>p.active!==false);
   byId('consumptionProduct').innerHTML=active.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
-  byId('receiptProducts').innerHTML=active.map(p=>`<div class="quantity-item"><label for="receipt-${escapeHtml(p.id)}">${escapeHtml(p.name)} (Kg)</label><input id="receipt-${escapeHtml(p.id)}" data-product-id="${escapeHtml(p.id)}" type="number" min="0" step="0.001" value="0"><small>Quantité livrée ce mois</small></div>`).join('');
+  byId('receiptProducts').innerHTML=active.map(p=>`<div class="quantity-item"><label for="receipt-${escapeHtml(p.id)}">${escapeHtml(p.name)} (Kg)</label><input id="receipt-${escapeHtml(p.id)}" data-product-id="${escapeHtml(p.id)}" type="number" min="0" step="0.001" value="0"><small>Quantité livrée</small></div>`).join('');
 }
+
 function renderReceiptState() {
-  const hasReceipt=state.receipts.some(r=>(r.month||r.date?.slice(0,7))===state.month);
-  byId('receiptAlreadyExists').classList.toggle('hidden',!hasReceipt);
-  byId('receiptForm').classList.toggle('hidden',hasReceipt);
-  byId('receiptDate').value=localDate().slice(0,7)===state.month?localDate():`${state.month}-01`;
+  byId('receiptDate').value=localDate();
 }
+
 function renderReport() {
   const rows=allCurrentRows();
   byId('reportMonth').textContent=monthTitle(state.month);
   byId('reportGenerated').textContent=localDate();
   byId('reportTableBody').innerHTML=rows.map(r=>`<tr><td>${escapeHtml(r.product.name)}</td><td>${escapeHtml(r.product.unit)}</td><td>${fmt(r.entries)}</td><td>${fmt(r.exits)}</td><td><strong>${fmt(r.closing)}</strong></td></tr>`).join('');
 }
+
 function computeCurrentStock(){
   const map={};
   state.products.forEach(p=>map[p.id]=0);
@@ -189,11 +222,13 @@ function computeCurrentStock(){
   });
   return map;
 }
+
 function stockStatusText(q){
   if(q>0)return {text:'Disponible',cls:'stock-ok'};
   if(q===0)return {text:'Épuisé',cls:'stock-empty'};
   return {text:'Déficit',cls:'stock-deficit'};
 }
+
 function groupByPeriod(movements, group){
   const groups={};
   movements.forEach(m=>{
@@ -207,6 +242,7 @@ function groupByPeriod(movements, group){
   });
   return Object.entries(groups).sort((a,b)=>b[0].localeCompare(a[0]));
 }
+
 function renderHistory(){
   const group=state.historyGroup;
   const grouped=groupByPeriod(state.history, group);
@@ -238,23 +274,26 @@ function renderHistory(){
         if(m.type==='entry'){periodIn+=num(m.quantity);} else{periodOut+=num(m.quantity);}
       });
       html+=`<div class="history-group"><h4>${escapeHtml(period)} — Entrées: ${fmt(periodIn)} kg, Sorties: ${fmt(periodOut)} kg, Solde: ${fmt(periodIn-periodOut)} kg</h4>`;
-      html+=`<table class="history-table"><thead><tr><th>Date et heure</th><th>Type</th><th>Produit</th><th>Quantitأ© (kg)</th><th>Dأ©tails</th><th>Actions</th></tr></thead><tbody>`;
+      html+=`<table class="history-table"><thead><tr><th>Date et heure</th><th>Type</th><th>Produit</th><th>Quantité (kg)</th><th>Détails</th><th>Actions</th></tr></thead><tbody>`;
       items.forEach(m=>{
         const created = m.created_at ? new Date(m.created_at).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : (m.date||'');
-        const details = m.type==='entry' ? `Fournisseur: ${escapeHtml(m.supplier)} ${m.reference?'— Réf: '+escapeHtml(m.reference):''}` : `Atelier: ${escapeHtml(m.department)} ${m.reason?'— Motif: '+escapeHtml(m.reason):''}`;
-        html+=`<tr><td>${escapeHtml(created)}</td><td><span class="movement-tag ${m.type}">${m.type==='entry'?'Entrأ©e':'Sortie'}</span></td><td>${escapeHtml(m.product_name)}</td><td class="quantity">${fmt(m.quantity)} kg</td><td>${details}</td><td><button type="button" class="btn-edit" data-id="${escapeHtml(m.id)}" data-type="${m.type}">Modifier</button></td></tr>`;
+        const details = m.type==='entry' 
+          ? [m.supplier?`Fournisseur : ${escapeHtml(m.supplier)}`:'', m.reference?`Réf : ${escapeHtml(m.reference)}`:'', m.note?`Observation : ${escapeHtml(m.note)}`:''].filter(Boolean).join(' — ') || '—'
+          : [m.department?`Atelier : ${escapeHtml(m.department)}`:'', m.reason?`Motif : ${escapeHtml(m.reason)}`:'', m.reference?`Réf : ${escapeHtml(m.reference)}`:'', m.note?`Observation : ${escapeHtml(m.note)}`:''].filter(Boolean).join(' — ') || '—';
+        html+=`<tr><td>${escapeHtml(created)}</td><td><span class="movement-tag ${m.type}">${m.type==='entry'?'Entrée':'Sortie'}</span></td><td>${escapeHtml(m.product_name)}</td><td class="quantity">${fmt(m.quantity)} kg</td><td>${details}</td><td><button type="button" class="btn-edit" data-id="${escapeHtml(m.id)}" data-type="${m.type}">Modifier</button></td></tr>`;
       });
       html+=`</tbody></table></div>`;
     });
   }
   byId('historyContent').innerHTML=html;
 }
+
 function renderAll() { byId('monthPicker').value=state.month; renderProductSelectors(); renderDashboard(); renderReceiptState(); renderReport(); renderHistory(); }
 function navigate(view) {
   state.view=view;
   document.querySelectorAll('.view-section').forEach(el=>el.classList.toggle('hidden',el.id!==`view-${view}`));
   document.querySelectorAll('.nav-link').forEach(el=>el.classList.toggle('active',el.dataset.view===view));
-  const titles={dashboard:'Vue d’ensemble',receipts:'Réception mensuelle',consumption:'Consommation',reports:'Rapports',history:'السجل والحركات'};
+  const titles={dashboard:'Vue d’ensemble',receipts:'Réception de stock',consumption:'Consommation',reports:'Rapports',history:'Historique et mouvements'};
   byId('pageTitle').textContent=titles[view]||'Stock sensible';
   if(view==='receipts') renderReceiptState(); if(view==='reports') renderReport();
 }
@@ -263,17 +302,30 @@ byId('loginForm').addEventListener('submit',async e=>{e.preventDefault();byId('l
 document.querySelectorAll('.nav-link').forEach(btn=>btn.addEventListener('click',()=>navigate(btn.dataset.view)));
 document.querySelectorAll('[data-go]').forEach(btn=>btn.addEventListener('click',()=>navigate(btn.dataset.go)));
 byId('monthPicker').addEventListener('change',e=>{if(e.target.value){state.month=e.target.value;renderAll();}});
-byId('refreshBtn').addEventListener('click',loadData);
+byId('refreshBtn').addEventListener('click',()=>loadData().catch(()=>{}));
 byId('logoutBtn').addEventListener('click',async()=>{try{await api('logout');}catch(_){}byId('appShell').classList.add('hidden');byId('loginScreen').classList.remove('hidden');});
 
 byId('receiptForm').addEventListener('submit',async e=>{
   e.preventDefault();setFormError('receiptError');
   const date=byId('receiptDate').value;
-  if(!date||date.slice(0,7)!==state.month){setFormError('receiptError','La date doit appartenir au mois sélectionné.');return;}
+  if(!date){setFormError('receiptError','Veuillez indiquer la date de réception.');return;}
   const items=[...document.querySelectorAll('#receiptProducts input')].map(input=>({product_id:input.dataset.productId,quantity:num(input.value)})).filter(x=>x.quantity>0);
   if(!items.length){setFormError('receiptError','Saisissez au moins une quantité positive.');return;}
-  try{setBusy(true);await api('save_receipt_batch',{date,items,supplier:byId('receiptSupplier').value.trim(),reference:byId('receiptReference').value.trim(),note:byId('receiptNote').value.trim()});await loadData();navigate('dashboard');showMessage('Réception mensuelle enregistrée avec succès.');byId('receiptForm').reset();}catch(err){setFormError('receiptError',err.message);}finally{setBusy(false);}
+  try{
+    setBusy(true);
+    await api('save_receipt_batch',{date,items,supplier:byId('receiptSupplier').value.trim(),reference:byId('receiptReference').value.trim(),note:byId('receiptNote').value.trim()});
+    await loadData();
+    navigate('dashboard');
+    showMessage('Réception enregistrée avec succès.');
+    byId('receiptForm').reset();
+    byId('receiptDate').value=localDate();
+  }catch(err){
+    setFormError('receiptError',err.message);
+  }finally{
+    setBusy(false);
+  }
 });
+
 byId('consumptionForm').addEventListener('submit',async e=>{
   e.preventDefault();setFormError('consumptionError');
   const payload={date:byId('consumptionDate').value,product_id:byId('consumptionProduct').value,quantity:num(byId('consumptionQuantity').value),department:byId('consumptionDepartment').value.trim(),reason:byId('consumptionReason').value.trim(),reference:byId('consumptionReference').value.trim(),note:byId('consumptionNote').value.trim()};
@@ -293,15 +345,27 @@ byId('monthPicker').value=state.month;byId('receiptDate').value=localDate();byId
 byId('editForm').addEventListener('submit',async e=>{e.preventDefault();await saveEditRecord();});
 byId('editCancelBtn').addEventListener('click',closeEditRecord);
 byId('editCloseBtn').addEventListener('click',closeEditRecord);
+byId('editDeleteBtn').addEventListener('click',deleteEditRecord);
 byId('editModal').addEventListener('click',e=>{if(e.target===byId('editModal'))closeEditRecord();});
+
 document.addEventListener('click',e=>{
+  if(!(e.target instanceof Element))return;
   const btn=e.target.closest('.btn-edit');
-  if(btn){
-    const source=btn.dataset.type==='entry'?state.receipts:state.consumptions;
-    const record=source.find(r=>String(r.id)===String(btn.dataset.id));
-    if(record){openEditRecord({...record,type:btn.dataset.type==='entry'?'entry':'exit'});}
+  if(!btn)return;
+  const type=btn.dataset.type;
+  if(type!=='entry'&&type!=='exit'){
+    showMessage('Type de mouvement invalide.','error');
+    return;
   }
+  const source=type==='entry'?state.receipts:state.consumptions;
+  const record=source.find(r=>String(r.id)===String(btn.dataset.id));
+  if(!record){
+    showMessage('Mouvement introuvable. Actualisez les données puis réessayez.','error');
+    return;
+  }
+  openEditRecord({...record,type});
 });
+
 document.querySelectorAll('[data-history-group]').forEach(btn=>{
   btn.addEventListener('click',()=>{
     state.historyGroup=btn.dataset.historyGroup;
@@ -310,3 +374,14 @@ document.querySelectorAll('[data-history-group]').forEach(btn=>{
     renderHistory();
   });
 });
+
+// Automatic session check on page load: if session cookie is valid, open dashboard directly
+(async function initSession() {
+  try {
+    await loadData();
+    byId('loginScreen').classList.add('hidden');
+    byId('appShell').classList.remove('hidden');
+  } catch (_) {
+    // Session is not active or invalid, login screen remains visible
+  }
+})();

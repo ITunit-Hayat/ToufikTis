@@ -32,7 +32,7 @@ const CI_DEFAULT_PRODUCTS = [
   ['alpasperse-nbo','ALPASPERSÉ NBO','Kg',true]
 ];
 
-// Spreadsheet selected by the user. Script Property SPREADSHEET_ID, when set, takes precedence.
+// Spreadsheet ID: Property SPREADSHEET_ID in Script Properties takes precedence.
 const CI_CONFIGURED_SPREADSHEET_ID = '1sQWFalptwPSxu25Dh_oGn1fO7RFMo65JX0K3sBpKegw';
 
 function doGet() {
@@ -53,6 +53,7 @@ function doPost(e) {
       case 'save_receipt_batch': data=ciSaveReceiptBatch_(ss,payload);break;
       case 'save_consumption': data=ciSaveConsumption_(ss,payload);break;
       case 'update_record': data=ciUpdateRecord_(ss,payload);break;
+      case 'delete_record': data=ciDeleteRecord_(ss,payload);break;
       case 'history': data=ciHistory_(ss,payload);break;
       default: throw new Error('Action inconnue.');
     }
@@ -67,7 +68,7 @@ function ciJson_(obj){return ContentService.createTextOutput(JSON.stringify(obj)
 function ciSafeEqual_(a,b){if(a.length!==b.length)return false;let r=0;for(let i=0;i<a.length;i++)r|=a.charCodeAt(i)^b.charCodeAt(i);return r===0;}
 function ciSpreadsheet_(){
   const propertyId=PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
-  const id=CI_CONFIGURED_SPREADSHEET_ID || propertyId;
+  const id=propertyId || CI_CONFIGURED_SPREADSHEET_ID;
   if(id)return SpreadsheetApp.openById(id);
   const active=SpreadsheetApp.getActiveSpreadsheet();
   if(active)return active;
@@ -97,7 +98,7 @@ function ciRows_(sh){
   const headers=values[0].map(String);
   return values.slice(1).filter(row=>row.some(v=>v!==''&&v!==null)).map(row=>{const o={};headers.forEach((h,i)=>o[h]=row[i]);return o;});
 }
-function ciProducts_(ss){return ciRows_(ss.getSheetByName(CI_SHEETS.products)).map(p=>({id:String(p.id),name:String(p.name),unit:String(p.unit||'Kg'),initial_stock:0,active:String(p.active).toLowerCase()!=='false'}));}
+function ciProducts_(ss){return ciRows_(ss.getSheetByName(CI_SHEETS.products)).map(p=>({id:String(p.id),name:String(p.name),unit:String(p.unit||'Kg'),active:String(p.active).toLowerCase()!=='false'}));}
 function ciTransactions_(ss){
   const receipts=ciRows_(ss.getSheetByName(CI_SHEETS.receipts)).map(r=>({id:String(r.id),date:ciDate_(r.date),month:String(r.month||ciDate_(r.date).slice(0,7)),product_id:String(r.product_id),quantity:Number(r.quantity)||0,supplier:String(r.supplier||''),reference:String(r.reference||''),note:String(r.note||''),created_at:String(r.created_at||'')}));
   const consumptions=ciRows_(ss.getSheetByName(CI_SHEETS.consumption)).map(r=>({id:String(r.id),date:ciDate_(r.date),month:String(r.month||ciDate_(r.date).slice(0,7)),product_id:String(r.product_id),quantity:Number(r.quantity)||0,department:String(r.department||''),reason:String(r.reason||''),reference:String(r.reference||''),note:String(r.note||''),created_at:String(r.created_at||'')}));
@@ -121,12 +122,18 @@ function ciAudit_(ss,action,recordId,productId,quantity,date,details){ss.getShee
 function ciBootstrap_(ss){const t=ciTransactions_(ss);return {products:ciProducts_(ss),receipts:t.receipts,consumptions:t.consumptions};}
 function ciSaveReceiptBatch_(ss,payload){
   const date=ciValidateDate_(String(payload.date||''));const month=date.slice(0,7);
-  const t=ciTransactions_(ss);if(t.receipts.some(r=>r.month===month))throw new Error('Une réception est déjà enregistrée pour '+month+'. La règle prévoit une seule réception mensuelle.');
   const products=ciProductMap_(ss);const items=Array.isArray(payload.items)?payload.items:[];if(!items.length)throw new Error('Aucune quantité à enregistrer.');
   const seen={};const rows=[];const now=new Date().toISOString();
-  items.forEach(item=>{const id=String(item.product_id||'');if(!products[id])throw new Error('Produit inconnu : '+id);if(seen[id])throw new Error('Produit répété dans la réception.');seen[id]=true;const q=ciNumber_(item.quantity,'Quantité',false);rows.push([Utilities.getUuid(),date,month,id,q,String(payload.supplier||''),String(payload.reference||''),String(payload.note||''),now]);});
+  items.forEach(item=>{
+    const id=String(item.product_id||'');
+    if(!products[id])throw new Error('Produit inconnu : '+id);
+    if(seen[id])throw new Error('Produit répété dans la réception.');
+    seen[id]=true;
+    const q=ciNumber_(item.quantity,'Quantité',false);
+    rows.push([Utilities.getUuid(),date,month,id,q,String(payload.supplier||''),String(payload.reference||''),String(payload.note||''),now]);
+  });
   const sh=ss.getSheetByName(CI_SHEETS.receipts);sh.getRange(sh.getLastRow()+1,1,rows.length,rows[0].length).setValues(rows);
-  rows.forEach(r=>ciAudit_(ss,'RECEPTION',r[0],r[3],r[4],r[1],'Réception mensuelle '+month));
+  rows.forEach(r=>ciAudit_(ss,'RECEPTION',r[0],r[3],r[4],r[1],'Réception stock '+date));
   return {saved:rows.length,month:month};
 }
 function ciSaveConsumption_(ss,payload){
@@ -140,18 +147,19 @@ function ciSaveConsumption_(ss,payload){
 function ciUpdateRecord_(ss,payload){
   const type=String(payload.type||'');
   const id=String(payload.record_id||'');
-  if(!id)throw new Error('معرف السجل مطلوب.');
+  if(!id)throw new Error('Identifiant du mouvement requis.');
   const sheetName=type==='receipt'?CI_SHEETS.receipts:type==='consumption'?CI_SHEETS.consumption:null;
-  if(!sheetName)throw new Error('نوع السجل غير صحيح.');
+  if(!sheetName)throw new Error('Type de mouvement invalide.');
   const sh=ss.getSheetByName(sheetName);
-  const rows=ciRows_(sh);
-  const rowIndex=rows.findIndex(r=>String(r.id).trim()===id.trim());
-  if(rowIndex===-1)throw new Error('السجل غير موجود.');
+  const lastRow=sh.getLastRow();
+  const ids=lastRow>1?sh.getRange(2,1,lastRow-1,1).getDisplayValues().map(row=>String(row[0]).trim()):[];
+  const rowIndex=ids.findIndex(rowId=>rowId===id.trim());
+  if(rowIndex===-1)throw new Error('Enregistrement introuvable.');
   const actualRow=rowIndex+2;
   const headerKey=sheetName===CI_SHEETS.receipts?'Receipts':'Consumption';
   const headers=CI_HEADERS[headerKey];
   const updates={};
-  if(payload.quantity!==undefined)updates.quantity=ciNumber_(payload.quantity,'الكمية',false);
+  if(payload.quantity!==undefined)updates.quantity=ciNumber_(payload.quantity,'Quantité',false);
   if(payload.date!==undefined){
     const d=ciValidateDate_(String(payload.date));
     updates.date=d;
@@ -162,20 +170,49 @@ function ciUpdateRecord_(ss,payload){
   if(payload.note!==undefined)updates.note=String(payload.note||'');
   if(payload.department!==undefined)updates.department=String(payload.department||'');
   if(payload.reason!==undefined)updates.reason=String(payload.reason||'');
-  if(Object.keys(updates).length===0)throw new Error('لا توجد بيانات للتعديل.');
-  const current=rows[rowIndex];
-  const candidate={...current,...updates};
+  if(Object.keys(updates).length===0)throw new Error('Aucune donnée à modifier.');
   const t=ciTransactions_(ss);
-  const receipts=type==='receipt'?t.receipts.map(r=>String(r.id)===id?candidate:r):t.receipts;
-  const consumptions=type==='consumption'?t.consumptions.map(r=>String(r.id)===id?candidate:r):t.consumptions;
+  const ledger=type==='receipt'?t.receipts:t.consumptions;
+  const ledgerIndex=ledger.findIndex(r=>String(r.id).trim()===id.trim());
+  if(ledgerIndex===-1)throw new Error('Enregistrement introuvable dans le journal de stock.');
+  const currentRecord={...ledger[ledgerIndex]};
+  const productId=currentRecord.product_id;
+  const candidate={...currentRecord,...updates};
+  if(updates.date!==undefined)candidate.month=updates.date.slice(0,7);
+  const receipts=type==='receipt'?t.receipts.map((r,i)=>i===ledgerIndex?candidate:r):t.receipts;
+  const consumptions=type==='consumption'?t.consumptions.map((r,i)=>i===ledgerIndex?candidate:r):t.consumptions;
   ciValidateLedger_(ciProducts_(ss),receipts,consumptions);
   Object.entries(updates).forEach(([key,value])=>{
     const col=headers.indexOf(key)+1;
     if(col<=0)throw new Error('Colonne introuvable pour le champ : '+key);
     sh.getRange(actualRow,col).setValue(value);
   });
-  ciAudit_(ss,type==='receipt'?'UPDATE_RECEPTION':'UPDATE_CONSUMPTION',id,payload.product_id||'',updates.quantity||0,updates.date||'','تعديل سجل '+type);
+  ciAudit_(ss,type==='receipt'?'UPDATE_RECEPTION':'UPDATE_CONSUMPTION',id,productId,updates.quantity!==undefined?updates.quantity:currentRecord.quantity,updates.date||currentRecord.date,'Modification mouvement '+type);
   return {updated:true,id:id,changes:updates};
+}
+function ciDeleteRecord_(ss,payload){
+  const type=String(payload.type||'');
+  const id=String(payload.record_id||'');
+  if(!id)throw new Error('Identifiant du mouvement requis.');
+  const sheetName=type==='receipt'?CI_SHEETS.receipts:type==='consumption'?CI_SHEETS.consumption:null;
+  if(!sheetName)throw new Error('Type de mouvement invalide.');
+  const sh=ss.getSheetByName(sheetName);
+  const lastRow=sh.getLastRow();
+  const ids=lastRow>1?sh.getRange(2,1,lastRow-1,1).getDisplayValues().map(row=>String(row[0]).trim()):[];
+  const rowIndex=ids.findIndex(rowId=>rowId===id.trim());
+  if(rowIndex===-1)throw new Error('Enregistrement introuvable dans la feuille.');
+  const actualRow=rowIndex+2;
+  const t=ciTransactions_(ss);
+  const ledger=type==='receipt'?t.receipts:t.consumptions;
+  const ledgerIndex=ledger.findIndex(r=>String(r.id).trim()===id.trim());
+  if(ledgerIndex===-1)throw new Error('Enregistrement introuvable dans le journal.');
+  const currentRecord=ledger[ledgerIndex];
+  const receipts=type==='receipt'?t.receipts.filter((_,i)=>i!==ledgerIndex):t.receipts;
+  const consumptions=type==='consumption'?t.consumptions.filter((_,i)=>i!==ledgerIndex):t.consumptions;
+  ciValidateLedger_(ciProducts_(ss),receipts,consumptions);
+  sh.deleteRow(actualRow);
+  ciAudit_(ss,type==='receipt'?'DELETE_RECEPTION':'DELETE_CONSUMPTION',id,currentRecord.product_id,currentRecord.quantity,currentRecord.date,'Suppression mouvement '+type);
+  return {deleted:true,id:id};
 }
 function ciHistory_(ss,payload){
   const t=ciTransactions_(ss);
@@ -215,4 +252,3 @@ function ciHistory_(ss,payload){
   movements.sort((a,b)=>(b.created_at||b.date||'').localeCompare(a.created_at||a.date||''));
   return {movements:movements,products:ciProducts_(ss)};
 }
-
