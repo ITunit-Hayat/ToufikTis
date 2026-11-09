@@ -31,7 +31,7 @@ module.exports = async (req,res) => {
     if(!configured||!secret)return send(res,503,{ok:false,error:'Configuration manquante : APP_ACCESS_PIN et SESSION_SECRET doivent être définis dans Vercel.'});
     if(!safeEqual(pin,configured))return send(res,401,{ok:false,error:'Code d’accès incorrect.'});
     const issued=String(Date.now());const sig=signature(issued,secret);
-    res.setHeader('Set-Cookie',`chem_session=${issued}.${sig}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=28800`);
+    res.setHeader('Set-Cookie',`chem_session=${issued}.${sig}; Path=/; HttpOnly; Secure; SameSite=Lax`);
     return send(res,200,{ok:true,data:{authenticated:true}});
   }
   if(action==='logout'){

@@ -354,9 +354,18 @@ byId('editCancelBtn').addEventListener('click',closeEditRecord);
 byId('editCloseBtn').addEventListener('click',closeEditRecord);
 byId('editDeleteBtn').addEventListener('click',deleteEditRecord);
 // Fermer uniquement en cliquant sur le backdrop (hors modal-card)
-byId('editModalBackdrop').addEventListener('click', ()=>{ if(Date.now()-(state._modalOpenedAt||0)>120) closeEditRecord(); });
+byId('editModalBackdrop').addEventListener('click', e => {
+  e.preventDefault();
+  closeEditRecord();
+});
 // Empêcher la propagation des clics internes vers le backdrop
-document.querySelector('#editModal .modal-card').addEventListener('click', e=>e.stopPropagation());
+document.querySelector('#editModal .modal-card').addEventListener('click', e => e.stopPropagation());
+// Fermer avec la touche Échap
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !byId('editModal').classList.contains('hidden')) {
+    closeEditRecord();
+  }
+});
 
 document.addEventListener('click',e=>{
   if(!(e.target instanceof Element))return;
@@ -385,13 +394,5 @@ document.querySelectorAll('[data-history-group]').forEach(btn=>{
   });
 });
 
-// Automatic session check on page load: if session cookie is valid, open dashboard directly
-(async function initSession() {
-  try {
-    await loadData(true); // silent=true: no error toast during probe
-    byId('loginScreen').classList.add('hidden');
-    byId('appShell').classList.remove('hidden');
-  } catch (_) {
-    // Session is not active or invalid — login screen stays visible, no message shown
-  }
-})();
+// Always start on login screen: PIN code required every time the site is opened
+// (No automatic bypass)
