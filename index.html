@@ -129,7 +129,7 @@
         <div class="modal-card">
           <div class="modal-header">
             <h3 id="editTypeLabel">Modifier l'enregistrement</h3>
-            <button id="editCloseBtn" class="modal-close">&times;</button>
+            <button id="editCloseBtn" type="button" class="modal-close">&times;</button>
           </div>
           <form id="editForm" class="modal-body">
             <input type="hidden" id="editRecordType">
@@ -149,6 +149,10 @@
             <div id="editExtraGroup" class="field">
               <label id="editExtraLabel">Informations complémentaires</label>
               <input id="editExtraValue" type="text" maxlength="160">
+            <div id="editReferenceGroup" class="field hidden">
+              <label for="editReferenceValue">Référence</label>
+              <input id="editReferenceValue" type="text" maxlength="160">
+            </div>
             </div>
             <div id="editDepartmentGroup" class="field hidden">
               <label for="editDepartmentValue">Atelier / service</label>

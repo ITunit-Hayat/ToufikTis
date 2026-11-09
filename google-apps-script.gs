@@ -19,7 +19,17 @@ const CI_DEFAULT_PRODUCTS = [
   ['hydrosulfite','Hydrosulfite','Kg',true],
   ['soude-caustique','Soude caustique','Kg',true],
   ['eau-oxygenee','Eau oxygénée','Kg',true],
-  ['acide-acetique','Acide acétique','Kg',true]
+  ['acide-acetique','Acide acétique','Kg',true],
+  ['alpaflame-sco','ALPAFLAME SCO','Kg',true],
+  ['alpaguard-fx6','ALPAGUARD FX6','Kg',true],
+  ['alpret-vam','ALPRET VAM','Kg',true],
+  ['alpadet-lf','ALPADET LF','Kg',true],
+  ['alpagal-ipn','ALPAGAL IPN','Kg',true],
+  ['sel-adoucisseur','SEL ADOUCISSEUR','Kg',true],
+  ['alpawet-fn','ALPAWET FN','Kg',true],
+  ['carbonate-de-soude','CARBONATE DE SOUDE','Kg',true],
+  ['sel-marine','SEL MARINE','Kg',true],
+  ['alpasperse-nbo','ALPASPERSÉ NBO','Kg',true]
 ];
 
 // Spreadsheet selected by the user. Script Property SPREADSHEET_ID, when set, takes precedence.
@@ -75,7 +85,12 @@ function ciEnsureSheets_(ss){
     }
   });
   const p=ss.getSheetByName(CI_SHEETS.products);
-  if(p.getLastRow()===1)p.getRange(2,1,CI_DEFAULT_PRODUCTS.length,5).setValues(CI_DEFAULT_PRODUCTS);
+  if(p.getLastRow()===1)p.getRange(2,1,CI_DEFAULT_PRODUCTS.length,CI_HEADERS.Products.length).setValues(CI_DEFAULT_PRODUCTS);
+  else if(p.getLastRow()>1){
+    const existing=ciRows_(p).map(row=>String(row.id));
+    const missing=CI_DEFAULT_PRODUCTS.filter(row=>existing.indexOf(row[0])===-1);
+    if(missing.length)p.getRange(p.getLastRow()+1,1,missing.length,CI_HEADERS.Products.length).setValues(missing);
+  }
 }
 function ciRows_(sh){
   const values=sh.getDataRange().getValues();if(values.length<2)return [];
@@ -148,14 +163,16 @@ function ciUpdateRecord_(ss,payload){
   if(payload.department!==undefined)updates.department=String(payload.department||'');
   if(payload.reason!==undefined)updates.reason=String(payload.reason||'');
   if(Object.keys(updates).length===0)throw new Error('لا توجد بيانات للتعديل.');
+  const current=rows[rowIndex];
+  const candidate={...current,...updates};
+  const t=ciTransactions_(ss);
+  const receipts=type==='receipt'?t.receipts.map(r=>String(r.id)===id?candidate:r):t.receipts;
+  const consumptions=type==='consumption'?t.consumptions.map(r=>String(r.id)===id?candidate:r):t.consumptions;
+  ciValidateLedger_(ciProducts_(ss),receipts,consumptions);
   Object.entries(updates).forEach(([key,value])=>{
     const col=headers.indexOf(key)+1;
     if(col>0)sh.getRange(actualRow,col).setValue(value);
   });
-  if(type==='consumption'||type==='receipt'){
-    const t=ciTransactions_(ss);
-    ciValidateLedger_(ciProducts_(ss),t.receipts,t.consumptions);
-  }
   ciAudit_(ss,type==='receipt'?'UPDATE_RECEPTION':'UPDATE_CONSUMPTION',id,payload.product_id||'',updates.quantity||0,updates.date||'','تعديل سجل '+type);
   return {updated:true,id:id,changes:updates};
 }

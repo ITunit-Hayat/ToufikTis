@@ -79,17 +79,22 @@ function openEditRecord(record){
   if(record.type==='entry'){
     byId('editTypeLabel').textContent='Modifier réception';
     byId('editExtraLabel').textContent='Fournisseur / Référence';
-    byId('editExtraValue').value=record.supplier||record.reference||'';
+    byId('editExtraValue').value=record.supplier||'';
+    byId('editExtraLabel').textContent='Fournisseur';
+    byId('editReferenceValue').value=record.reference||'';
+    byId('editReferenceGroup').classList.remove('hidden');
     byId('editExtraGroup').classList.remove('hidden');
     byId('editReasonGroup').classList.add('hidden');
     byId('editDepartmentGroup').classList.add('hidden');
   }else{
     byId('editTypeLabel').textContent='Modifier consommation';
+    byId('editReferenceGroup').classList.add('hidden');
     byId('editExtraLabel').textContent='Motif / Destination';
-    byId('editExtraValue').value=record.reason||record.department||'';
-    byId('editExtraGroup').classList.remove('hidden');
-    byId('editReasonGroup').classList.add('hidden');
-    byId('editDepartmentGroup').classList.add('hidden');
+    byId('editDepartmentValue').value=record.department||'';
+    byId('editReasonValue').value=record.reason||'';
+    byId('editExtraGroup').classList.add('hidden');
+    byId('editReasonGroup').classList.remove('hidden');
+    byId('editDepartmentGroup').classList.remove('hidden');
   }
   modal.classList.remove('hidden');
 }
@@ -107,8 +112,8 @@ async function saveEditRecord(){
   const extra=byId('editExtraValue').value.trim();
   if(!date||quantity<=0){byId('editError').textContent='Vérifiez la date et la quantité.';return;}
   const payload={type,record_id:id,date,quantity};
-  if(type==='receipt'){payload.supplier=extra;}
-  else{payload.reason=extra;payload.department=byId('editDepartmentValue')?byId('editDepartmentValue').value:'';}
+  if(type==='receipt'){payload.supplier=extra;payload.reference=byId('editReferenceValue').value.trim();}
+  else{payload.reason=byId('editReasonValue').value.trim();payload.department=byId('editDepartmentValue').value.trim();}
   try{
     setBusy(true);
     await api('update_record',payload);
@@ -231,11 +236,11 @@ function renderHistory(){
         if(m.type==='entry'){periodIn+=num(m.quantity);} else{periodOut+=num(m.quantity);}
       });
       html+=`<div class="history-group"><h4>${escapeHtml(period)} — Entrées: ${fmt(periodIn)} kg, Sorties: ${fmt(periodOut)} kg, Solde: ${fmt(periodIn-periodOut)} kg</h4>`;
-      html+=`<table class="history-table"><thead><tr><th>Date et heure</th><th>Type</th><th>Produit</th><th>Quantité (kg)</th><th>Détails</th></tr></thead><tbody>`;
+      html+=`<table class="history-table"><thead><tr><th>Date et heure</th><th>Type</th><th>Produit</th><th>Quantitأ© (kg)</th><th>Dأ©tails</th><th>Actions</th></tr></thead><tbody>`;
       items.forEach(m=>{
         const created = m.created_at ? new Date(m.created_at).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : (m.date||'');
         const details = m.type==='entry' ? `Fournisseur: ${escapeHtml(m.supplier)} ${m.reference?'— Réf: '+escapeHtml(m.reference):''}` : `Atelier: ${escapeHtml(m.department)} ${m.reason?'— Motif: '+escapeHtml(m.reason):''}`;
-        html+=`<tr><td>${escapeHtml(created)}</td><td><span class="movement-tag ${m.type}">${m.type==='entry'?'Entrée':'Sortie'}</span></td><td>${escapeHtml(m.product_name)}</td><td class="quantity">${fmt(m.quantity)} kg</td><td>${details}</td></tr>`;
+        html+=`<tr><td>${escapeHtml(created)}</td><td><span class="movement-tag ${m.type}">${m.type==='entry'?'Entrأ©e':'Sortie'}</span></td><td>${escapeHtml(m.product_name)}</td><td class="quantity">${fmt(m.quantity)} kg</td><td>${details}</td><td><button type="button" class="btn-edit" data-id="${escapeHtml(m.id)}" data-type="${m.type}">Modifier</button></td></tr>`;
       });
       html+=`</tbody></table></div>`;
     });
