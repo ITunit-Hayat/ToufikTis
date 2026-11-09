@@ -73,6 +73,7 @@ function movementsFor(productId) {
 
 function openEditRecord(record){
   state.editing=record;
+  state._modalOpenedAt=Date.now();
   const modal=byId('editModal');
   const isEntry=record.type==='entry';
   byId('editRecordType').value=isEntry?'receipt':'consumption';
@@ -352,8 +353,10 @@ byId('editForm').addEventListener('submit',async e=>{e.preventDefault();await sa
 byId('editCancelBtn').addEventListener('click',closeEditRecord);
 byId('editCloseBtn').addEventListener('click',closeEditRecord);
 byId('editDeleteBtn').addEventListener('click',deleteEditRecord);
-byId('editModal').addEventListener('click',e=>{if(e.target===byId('editModal'))closeEditRecord();});
-byId('editModalBackdrop').addEventListener('click', closeEditRecord);
+// Fermer uniquement en cliquant sur le backdrop (hors modal-card)
+byId('editModalBackdrop').addEventListener('click', ()=>{ if(Date.now()-(state._modalOpenedAt||0)>120) closeEditRecord(); });
+// Empêcher la propagation des clics internes vers le backdrop
+document.querySelector('#editModal .modal-card').addEventListener('click', e=>e.stopPropagation());
 
 document.addEventListener('click',e=>{
   if(!(e.target instanceof Element))return;
