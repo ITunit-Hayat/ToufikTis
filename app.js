@@ -1,6 +1,6 @@
 'use strict';
 
-const state = { products: [], receipts: [], consumptions: [], history: [], month: currentMonth(), view: 'dashboard', busy: false, editing: null, historyGroup: 'month' };
+const state = { products: [], receipts: [], consumptions: [], history: [], month: currentMonth(), view: 'dashboard', busy: false, editing: null, historyGroup: 'day' };
 const byId = (id) => document.getElementById(id);
 const PRODUCT_FALLBACK = [
   { id: 'hydrosulfite', name: 'Hydrosulfite', unit: 'Kg', active: true },
@@ -46,7 +46,7 @@ async function login(pin) {
   await loadData();
 }
 
-async function loadData() {
+async function loadData(silent=false) {
   setBusy(true);
   try {
     const data = await api('bootstrap');
@@ -58,7 +58,7 @@ async function loadData() {
     renderAll();
   } catch (error) {
     if (/session|authentification|401/i.test(error.message)) { byId('appShell').classList.add('hidden'); byId('loginScreen').classList.remove('hidden'); }
-    showMessage(error.message,'error');
+    if (!silent) showMessage(error.message,'error');
     throw error;
   } finally { setBusy(false); }
 }
@@ -86,14 +86,17 @@ function openEditRecord(record){
   byId('editReferenceValue').value='';
   byId('editDepartmentValue').value='';
   byId('editReasonValue').value='';
+  byId('editNoteValue').value='';
   setFormError('editError');
   if(isEntry){
     byId('editTypeLabel').textContent='Modifier réception';
     byId('editExtraLabel').textContent='Fournisseur';
     byId('editExtraValue').value=record.supplier||'';
     byId('editReferenceValue').value=record.reference||'';
+    byId('editNoteValue').value=record.note||'';
     byId('editReferenceGroup').classList.remove('hidden');
     byId('editExtraGroup').classList.remove('hidden');
+    byId('editNoteGroup').classList.remove('hidden');
     byId('editReasonGroup').classList.add('hidden');
     byId('editDepartmentGroup').classList.add('hidden');
   }else{
@@ -102,7 +105,9 @@ function openEditRecord(record){
     byId('editReferenceGroup').classList.remove('hidden');
     byId('editDepartmentValue').value=record.department||'';
     byId('editReasonValue').value=record.reason||'';
+    byId('editNoteValue').value=record.note||'';
     byId('editExtraGroup').classList.add('hidden');
+    byId('editNoteGroup').classList.remove('hidden');
     byId('editReasonGroup').classList.remove('hidden');
     byId('editDepartmentGroup').classList.remove('hidden');
   }
@@ -124,8 +129,8 @@ async function saveEditRecord(){
   const extra=byId('editExtraValue').value.trim();
   if(!date||quantity<=0){byId('editError').textContent='Vérifiez la date et la quantité.';return;}
   const payload={type,record_id:id,date,quantity};
-  if(type==='receipt'){payload.supplier=extra;payload.reference=byId('editReferenceValue').value.trim();}
-  else{payload.reason=byId('editReasonValue').value.trim();payload.department=byId('editDepartmentValue').value.trim();payload.reference=byId('editReferenceValue').value.trim();}
+  if(type==='receipt'){payload.supplier=extra;payload.reference=byId('editReferenceValue').value.trim();payload.note=byId('editNoteValue').value.trim();}
+  else{payload.reason=byId('editReasonValue').value.trim();payload.department=byId('editDepartmentValue').value.trim();payload.reference=byId('editReferenceValue').value.trim();payload.note=byId('editNoteValue').value.trim();}
   try{
     setBusy(true);
     const result=await api('update_record',payload);
@@ -175,6 +180,7 @@ function allCurrentRows() { return state.products.filter(p=>p.active!==false).ma
 function renderDashboard() {
   const rows=allCurrentRows();
   byId('monthLabel').textContent=monthTitle(state.month);
+  const mlTable=byId('monthLabelTable'); if(mlTable) mlTable.textContent=monthTitle(state.month);
   byId('statProducts').textContent=rows.length;
   byId('statEntries').textContent=rows.filter(r=>r.entries>0).length;
   byId('statUsed').textContent=rows.filter(r=>r.exits>0).length;
@@ -347,6 +353,7 @@ byId('editCancelBtn').addEventListener('click',closeEditRecord);
 byId('editCloseBtn').addEventListener('click',closeEditRecord);
 byId('editDeleteBtn').addEventListener('click',deleteEditRecord);
 byId('editModal').addEventListener('click',e=>{if(e.target===byId('editModal'))closeEditRecord();});
+byId('editModalBackdrop').addEventListener('click', closeEditRecord);
 
 document.addEventListener('click',e=>{
   if(!(e.target instanceof Element))return;
@@ -378,10 +385,10 @@ document.querySelectorAll('[data-history-group]').forEach(btn=>{
 // Automatic session check on page load: if session cookie is valid, open dashboard directly
 (async function initSession() {
   try {
-    await loadData();
+    await loadData(true); // silent=true: no error toast during probe
     byId('loginScreen').classList.add('hidden');
     byId('appShell').classList.remove('hidden');
   } catch (_) {
-    // Session is not active or invalid, login screen remains visible
+    // Session is not active or invalid — login screen stays visible, no message shown
   }
 })();

@@ -4,37 +4,41 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#173b36">
-  <meta name="description" content="Gestion mensuelle du stock des produits chimiques sensibles.">
+  <meta name="description" content="Gestion du stock des produits chimiques sensibles.">
   <title>Suivi des produits sensibles</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+
+  <!-- Écran de connexion -->
   <div id="loginScreen" class="login-screen">
-    <form id="loginForm" class="login-card">
+    <form id="loginForm" class="login-card" autocomplete="on">
       <div class="brand-mark">CS</div>
       <p class="eyebrow">GESTION DE STOCK</p>
       <h1>Produits sensibles</h1>
       <p class="muted">Accès réservé au personnel autorisé.</p>
-      <label for="accessPin">Code d’accès</label>
-      <input id="accessPin" type="password" inputmode="numeric" autocomplete="current-password" required placeholder="Saisir le code">
-      <button class="btn btn-primary full" type="submit">Se connecter</button>
-      <p id="loginError" class="form-error" role="alert"></p>
+      <div class="field" style="margin-top:24px;">
+        <label for="accessPin">Code d'accès</label>
+        <input id="accessPin" type="password" inputmode="numeric" autocomplete="current-password" required placeholder="Saisir le code">
+      </div>
+      <button class="btn btn-primary full" type="submit" style="margin-top:16px;">Se connecter</button>
+      <p id="loginError" class="form-error" role="alert" aria-live="assertive"></p>
     </form>
   </div>
 
+  <!-- Application principale -->
   <div id="appShell" class="app-shell hidden">
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark">CS</div>
-        <div><strong>Stock sensible</strong><small>Suivi mensuel</small></div>
+        <div><strong>Stock chimique</strong><small>Suivi des mouvements</small></div>
       </div>
       <nav class="main-nav" aria-label="Navigation principale">
-        <button class="nav-link active" data-view="dashboard"><span>▦</span> Vue d’ensemble</button>
+        <button class="nav-link active" data-view="dashboard"><span>▦</span> Vue d'ensemble</button>
         <button class="nav-link" data-view="receipts"><span>↓</span> Réception de stock</button>
         <button class="nav-link" data-view="consumption"><span>↑</span> Consommation</button>
         <button class="nav-link" data-view="reports"><span>▤</span> Rapports</button>
-        <button class="nav-link" data-view="history"><span>📋</span> Historique et mouvements</button>
-
+        <button class="nav-link" data-view="history"><span>📋</span> Historique</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="secure-note"><span class="status-dot"></span><span>Session sécurisée</span></div>
@@ -46,7 +50,7 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">GESTION DES PRODUITS CHIMIQUES</p>
-          <h1 id="pageTitle">Vue d’ensemble</h1>
+          <h1 id="pageTitle">Vue d'ensemble</h1>
         </div>
         <div class="topbar-actions">
           <label class="month-control"><span>Mois suivi</span><input id="monthPicker" type="month"></label>
@@ -54,25 +58,49 @@
         </div>
       </header>
 
-      <div id="appMessage" class="app-message hidden" role="status"></div>
+      <div id="appMessage" class="app-message hidden" role="alert" aria-live="polite"></div>
 
+      <!-- Vue d'ensemble -->
       <section id="view-dashboard" class="view-section">
-        <div class="section-intro"><div><h2>Situation du stock</h2><p>Soldes calculés automatiquement à partir des mouvements enregistrés.</p></div><span id="monthLabel" class="month-chip"></span></div>
+        <div class="section-intro">
+          <div><h2>Situation du stock</h2><p>Soldes calculés automatiquement à partir des mouvements enregistrés.</p></div>
+          <span id="monthLabel" class="month-chip"></span>
+        </div>
         <div class="stat-grid">
           <article class="stat-card"><span class="stat-label">Produits suivis</span><strong id="statProducts">—</strong><small>Produits actifs</small></article>
-          <article class="stat-card"><span class="stat-label">Produits réceptionnés</span><strong id="statEntries">0</strong><small>Produits avec entrée ce mois</small></article>
-          <article class="stat-card"><span class="stat-label">Produits consommés</span><strong id="statUsed">0</strong><small>Produits avec sortie ce mois</small></article>
-          <article class="stat-card accent-card"><span class="stat-label">Produits disponibles</span><strong id="statBalance">—</strong><small>Produits avec solde positif</small></article>
+          <article class="stat-card"><span class="stat-label">Entrées ce mois</span><strong id="statEntries">0</strong><small>Produits réceptionnés</small></article>
+          <article class="stat-card"><span class="stat-label">Sorties ce mois</span><strong id="statUsed">0</strong><small>Produits consommés</small></article>
+          <article class="stat-card accent-card"><span class="stat-label">Produits disponibles</span><strong id="statBalance">—</strong><small>Avec solde positif</small></article>
         </div>
         <article class="panel">
-          <div class="panel-heading"><div><h3>État mensuel des produits sensibles</h3><p>Le solde est calculé à partir des mouvements enregistrés.</p></div><button class="btn btn-secondary btn-small" data-go="reports">Voir le rapport</button></div>
-          <div class="table-wrap"><table><thead><tr><th>Produit</th><th>Unité</th><th>Entrée</th><th>Sortie</th><th>Stock final</th><th>État</th></tr></thead><tbody id="stockTableBody"></tbody></table></div>
+          <div class="panel-heading">
+            <div><h3>État du stock — <span id="monthLabelTable"></span></h3><p>Le stock final est le solde cumulatif réel de toutes les entrées et sorties.</p></div>
+            <button class="btn btn-secondary btn-small" data-go="reports">Voir le rapport</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Produit</th><th>Unité</th><th>Entrées (mois)</th><th>Sorties (mois)</th><th>Stock final</th><th>État</th></tr></thead>
+              <tbody id="stockTableBody"></tbody>
+            </table>
+          </div>
         </article>
-        <article class="panel"><div class="panel-heading"><div><h3>Derniers mouvements</h3><p>Historique récent des réceptions et consommations.</p></div></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Quantité</th><th>Référence / motif</th><th>Actions</th></tr></thead><tbody id="recentTableBody"></tbody></table></div></article>
+        <article class="panel">
+          <div class="panel-heading"><div><h3>Derniers mouvements</h3><p>8 mouvements les plus récents toutes dates confondues.</p></div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Quantité</th><th>Référence / motif</th><th>Actions</th></tr></thead>
+              <tbody id="recentTableBody"></tbody>
+            </table>
+          </div>
+        </article>
       </section>
 
+      <!-- Réception de stock -->
       <section id="view-receipts" class="view-section hidden">
-        <div class="section-intro"><div><h2>Réception de stock</h2><p>Enregistrez les livraisons et entrées de produits à tout moment.</p></div><span class="info-chip">Entrée de stock</span></div>
+        <div class="section-intro">
+          <div><h2>Réception de stock</h2><p>Enregistrez les livraisons et entrées de produits à tout moment.</p></div>
+          <span class="info-chip">Entrée de stock</span>
+        </div>
         <form id="receiptForm" class="panel form-panel">
           <div class="form-grid two-col">
             <div class="field"><label for="receiptDate">Date de réception *</label><input id="receiptDate" type="date" required></div>
@@ -80,15 +108,22 @@
             <div class="field"><label for="receiptReference">Bon de livraison / référence</label><input id="receiptReference" maxlength="100" placeholder="N° du document"></div>
             <div class="field"><label for="receiptNote">Observation</label><input id="receiptNote" maxlength="250" placeholder="Observation facultative"></div>
           </div>
-          <div class="subheading"><h3>Quantités réceptionnées</h3><span>Unité : Kg</span></div>
+          <div class="subheading"><h3>Quantités réceptionnées</h3><span>Unité : Kg — Laissez 0 pour les produits non livrés</span></div>
           <div id="receiptProducts" class="quantity-grid"></div>
-          <div class="form-footer"><p class="muted">Saisissez les quantités livrées (laissez 0 pour les produits non concernés).</p><button class="btn btn-primary" type="submit">Enregistrer la réception</button></div>
-          <p id="receiptError" class="form-error" role="alert"></p>
+          <div class="form-footer">
+            <p class="muted">Seules les quantités supérieures à 0 seront enregistrées.</p>
+            <button class="btn btn-primary" type="submit">Enregistrer la réception</button>
+          </div>
+          <p id="receiptError" class="form-error" role="alert" aria-live="assertive"></p>
         </form>
       </section>
 
+      <!-- Consommation -->
       <section id="view-consumption" class="view-section hidden">
-        <div class="section-intro"><div><h2>Enregistrer une consommation</h2><p>Chaque sortie est enregistrée séparément pour conserver l’historique.</p></div><span class="info-chip">Contrôle du stock disponible</span></div>
+        <div class="section-intro">
+          <div><h2>Enregistrer une consommation</h2><p>Chaque sortie est enregistrée séparément pour conserver l'historique complet.</p></div>
+          <span class="info-chip">Contrôle du stock disponible</span>
+        </div>
         <form id="consumptionForm" class="panel form-panel">
           <div class="form-grid two-col">
             <div class="field"><label for="consumptionDate">Date de sortie *</label><input id="consumptionDate" type="date" required></div>
@@ -99,82 +134,113 @@
             <div class="field"><label for="consumptionReference">Bon / référence</label><input id="consumptionReference" maxlength="100" placeholder="N° du document"></div>
             <div class="field full-field"><label for="consumptionNote">Observation</label><textarea id="consumptionNote" rows="2" maxlength="300" placeholder="Observation facultative"></textarea></div>
           </div>
-          <div class="form-footer"><p class="muted">Une sortie qui rendrait le stock négatif sera refusée.</p><button class="btn btn-primary" type="submit">Enregistrer la sortie</button></div>
-          <p id="consumptionError" class="form-error" role="alert"></p>
+          <div class="form-footer">
+            <p class="muted">Une sortie qui rendrait le stock négatif sera refusée automatiquement.</p>
+            <button class="btn btn-primary" type="submit">Enregistrer la sortie</button>
+          </div>
+          <p id="consumptionError" class="form-error" role="alert" aria-live="assertive"></p>
         </form>
       </section>
 
+      <!-- Rapports -->
       <section id="view-reports" class="view-section hidden">
-        <div class="section-intro"><div><h2>Rapport mensuel</h2><p>État récapitulatif prêt à imprimer ou à enregistrer en PDF.</p></div><div class="action-row"><button id="csvBtn" class="btn btn-secondary">Exporter CSV</button><button id="printBtn" class="btn btn-primary">Imprimer / PDF</button></div></div>
+        <div class="section-intro">
+          <div><h2>Rapport mensuel</h2><p>État récapitulatif prêt à imprimer ou à enregistrer en PDF.</p></div>
+          <div class="action-row">
+            <button id="csvBtn" class="btn btn-secondary">Exporter CSV</button>
+            <button id="printBtn" class="btn btn-primary">Imprimer / PDF</button>
+          </div>
+        </div>
         <article class="panel report-panel" id="printArea">
-          <div class="report-header"><div><p class="eyebrow">ÉTAT DE MOUVEMENT DES PRODUITS SENSIBLES</p><h2>Rapport mensuel de stock</h2></div><div class="report-date">Durant le mois de : <strong id="reportMonth"></strong></div></div>
-          <div class="table-wrap"><table class="report-table"><thead><tr><th>Produit</th><th>Unité</th><th>Entrée</th><th>Sortie</th><th>Stock final</th></tr></thead><tbody id="reportTableBody"></tbody></table></div>
-          <div class="report-foot"><span>Établi le : <strong id="reportGenerated"></strong></span><span>Visa du responsable : ____________________</span></div>
+          <div class="report-header">
+            <div><p class="eyebrow">ÉTAT DE MOUVEMENT DES PRODUITS SENSIBLES</p><h2>Rapport mensuel de stock</h2></div>
+            <div class="report-date">Durant le mois de : <strong id="reportMonth"></strong></div>
+          </div>
+          <div class="table-wrap">
+            <table class="report-table">
+              <thead><tr><th>Produit</th><th>Unité</th><th>Entrées</th><th>Sorties</th><th>Stock final</th></tr></thead>
+              <tbody id="reportTableBody"></tbody>
+            </table>
+          </div>
+          <div class="report-foot">
+            <span>Établi le : <strong id="reportGenerated"></strong></span>
+            <span>Visa du responsable : ____________________</span>
+          </div>
         </article>
       </section>
 
-
-
+      <!-- Historique -->
       <section id="view-history" class="view-section hidden">
-        <div class="section-intro"><div><h2>Historique et mouvements</h2><p>Tout ce qui est entré et sorti, avec date, heure et détails.</p></div><div class="history-group-toggle">
-          <button data-history-group="day" class="active">Jour</button>
-          <button data-history-group="month">Mois</button>
-          <button data-history-group="year">Année</button>
-        </div></div>
+        <div class="section-intro">
+          <div><h2>Historique et mouvements</h2><p>Tout ce qui est entré et sorti, avec date, heure et détails.</p></div>
+          <div class="history-group-toggle">
+            <button data-history-group="day" class="active">Jour</button>
+            <button data-history-group="month">Mois</button>
+            <button data-history-group="year">Année</button>
+          </div>
+        </div>
         <div id="historyContent"></div>
       </section>
-      <section id="editModal" class="modal" role="dialog" aria-modal="true" aria-label="Modifier l'enregistrement">
-        <div class="modal-backdrop" onclick="closeEditRecord()"></div>
-        <div class="modal-card">
-          <div class="modal-header">
-            <h3 id="editTypeLabel">Modifier l'enregistrement</h3>
-            <button id="editCloseBtn" type="button" class="modal-close">&times;</button>
-          </div>
-          <form id="editForm" class="modal-body">
-            <input type="hidden" id="editRecordType">
-            <input type="hidden" id="editRecordId">
-            <div class="field">
-              <label for="editProduct">Produit</label>
-              <input id="editProduct" type="text" readonly>
-            </div>
-            <div class="field">
-              <label for="editDate">Date *</label>
-              <input id="editDate" type="date" required>
-            </div>
-            <div class="field">
-              <label for="editQuantity">Quantité (kg) *</label>
-              <input id="editQuantity" type="number" min="0.001" step="0.001" required placeholder="0,000">
-            </div>
-            <div id="editExtraGroup" class="field">
-              <label id="editExtraLabel" for="editExtraValue">Informations complémentaires</label>
-              <input id="editExtraValue" type="text" maxlength="160">
-            </div>
-            <div id="editReferenceGroup" class="field hidden">
-              <label for="editReferenceValue">Référence</label>
-              <input id="editReferenceValue" type="text" maxlength="160">
-            </div>
-            <div id="editDepartmentGroup" class="field hidden">
-              <label for="editDepartmentValue">Atelier / service</label>
-              <input id="editDepartmentValue" type="text" maxlength="120">
-            </div>
-            <div id="editReasonGroup" class="field hidden">
-              <label for="editReasonValue">Motif / destination</label>
-              <input id="editReasonValue" type="text" maxlength="160">
-            </div>
-            <p id="editError" class="form-error" role="alert"></p>
-            <div class="modal-actions">
-              <button type="button" id="editDeleteBtn" class="btn btn-danger">Supprimer</button>
-              <div class="modal-actions-right">
-                <button type="button" id="editCancelBtn" class="btn btn-secondary">Annuler</button>
-                <button type="submit" class="btn btn-primary">Enregistrer</button>
-              </div>
-            </div>
-          </form>
-        </div>
-      </section>
+
       <footer class="app-footer">Gestion des produits chimiques sensibles <span>•</span> Les données sont conservées dans Google Sheets.</footer>
     </main>
   </div>
+
+  <!-- Modal de modification — en dehors de main pour Z-index correct -->
+  <div id="editModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="editTypeLabel">
+    <div class="modal-backdrop" id="editModalBackdrop"></div>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="editTypeLabel">Modifier l'enregistrement</h3>
+        <button id="editCloseBtn" type="button" class="modal-close" aria-label="Fermer">&times;</button>
+      </div>
+      <form id="editForm" class="modal-body" novalidate>
+        <input type="hidden" id="editRecordType">
+        <input type="hidden" id="editRecordId">
+        <div class="field">
+          <label for="editProduct">Produit</label>
+          <input id="editProduct" type="text" readonly tabindex="-1">
+        </div>
+        <div class="field">
+          <label for="editDate">Date *</label>
+          <input id="editDate" type="date" required>
+        </div>
+        <div class="field">
+          <label for="editQuantity">Quantité (kg) *</label>
+          <input id="editQuantity" type="number" min="0.001" step="0.001" required placeholder="0,000">
+        </div>
+        <div id="editExtraGroup" class="field hidden">
+          <label id="editExtraLabel" for="editExtraValue">Fournisseur</label>
+          <input id="editExtraValue" type="text" maxlength="160" placeholder="">
+        </div>
+        <div id="editReferenceGroup" class="field hidden">
+          <label for="editReferenceValue">Référence</label>
+          <input id="editReferenceValue" type="text" maxlength="160" placeholder="N° du document">
+        </div>
+        <div id="editDepartmentGroup" class="field hidden">
+          <label for="editDepartmentValue">Atelier / service</label>
+          <input id="editDepartmentValue" type="text" maxlength="120" placeholder="Nom de l'atelier">
+        </div>
+        <div id="editReasonGroup" class="field hidden">
+          <label for="editReasonValue">Motif / destination</label>
+          <input id="editReasonValue" type="text" maxlength="160" placeholder="Motif de la sortie">
+        </div>
+        <div id="editNoteGroup" class="field hidden">
+          <label for="editNoteValue">Observation</label>
+          <input id="editNoteValue" type="text" maxlength="250" placeholder="Observation facultative">
+        </div>
+        <p id="editError" class="form-error" role="alert" aria-live="assertive"></p>
+        <div class="modal-actions">
+          <button type="button" id="editDeleteBtn" class="btn btn-danger">Supprimer</button>
+          <div class="modal-actions-right">
+            <button type="button" id="editCancelBtn" class="btn btn-secondary">Annuler</button>
+            <button type="submit" class="btn btn-primary">Enregistrer</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="/app.js" defer></script>
 </body>
 </html>
