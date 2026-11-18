@@ -1,4 +1,4 @@
-/**
+ /**
  * Chemical Inventory - Google Apps Script backend
  * Create/open the Google Sheet, then paste this complete file into Apps Script.
  * Script Properties required: SPREADSHEET_ID and WEBHOOK_TOKEN.
@@ -55,6 +55,8 @@ function doPost(e) {
       case 'update_record': data=ciUpdateRecord_(ss,payload);break;
       case 'delete_record': data=ciDeleteRecord_(ss,payload);break;
       case 'history': data=ciHistory_(ss,payload);break;
+      case 'add_product': data=ciAddProduct_(ss,payload);break;
+      case 'update_product': data=ciUpdateProduct_(ss,payload);break;
       default: throw new Error('Action inconnue.');
     }
     return ciJson_({ok:true,data:data});
@@ -251,4 +253,48 @@ function ciHistory_(ss,payload){
   });
   movements.sort((a,b)=>(b.created_at||b.date||'').localeCompare(a.created_at||a.date||''));
   return {movements:movements,products:ciProducts_(ss)};
+}
+function ciAddProduct_(ss,payload){
+  const name=String(payload.name||'').trim();
+  if(!name)throw new Error('Le nom du produit est requis.');
+  const unit=String(payload.unit||'Kg').trim()||'Kg';
+  let id=String(payload.id||'').trim();
+  if(!id){
+    id=name.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/[^a-z0-9]+/g,'-')
+      .replace(/^-+|-+$/g,'');
+  }
+  if(!id)id='prod-'+Utilities.getUuid().slice(0,8);
+  const sh=ss.getSheetByName(CI_SHEETS.products);
+  const products=ciProducts_(ss);
+  if(products.some(p=>p.id===id)){
+    throw new Error('Un produit avec cet identifiant ou ce nom existe déjà.');
+  }
+  const row=[id,name,unit,true];
+  sh.appendRow(row);
+  ciAudit_(ss,'ADD_PRODUCT',id,id,0,ciDate_(new Date()),'Ajout produit : '+name);
+  return {id:id,name:name,unit:unit,active:true};
+}
+function ciUpdateProduct_(ss,payload){
+  const id=String(payload.id||'').trim();
+  if(!id)throw new Error('Identifiant du produit requis.');
+  const sh=ss.getSheetByName(CI_SHEETS.products);
+  const lastRow=sh.getLastRow();
+  if(lastRow<2)throw new Error('Aucun produit trouvé.');
+  const ids=sh.getRange(2,1,lastRow-1,1).getDisplayValues().map(r=>String(r[0]).trim());
+  const rowIndex=ids.findIndex(rowId=>rowId===id);
+  if(rowIndex===-1)throw new Error('Produit introuvable.');
+  const actualRow=rowIndex+2;
+  const headers=CI_HEADERS.Products;
+  const updates={};
+  if(payload.name!==undefined)updates.name=String(payload.name).trim();
+  if(payload.unit!==undefined)updates.unit=String(payload.unit).trim();
+  if(payload.active!==undefined)updates.active=Boolean(payload.active);
+  Object.entries(updates).forEach(([key,value])=>{
+    const col=headers.indexOf(key)+1;
+    if(col>0)sh.getRange(actualRow,col).setValue(value);
+  });
+  ciAudit_(ss,'UPDATE_PRODUCT',id,id,0,ciDate_(new Date()),'Mise à jour produit '+id);
+  return {updated:true,id:id,changes:updates};
 }

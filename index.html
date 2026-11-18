@@ -39,6 +39,7 @@
         <button class="nav-link" data-view="consumption"><span>↑</span> Consommation</button>
         <button class="nav-link" data-view="reports"><span>▤</span> Rapports</button>
         <button class="nav-link" data-view="history"><span>📋</span> Historique</button>
+        <button class="nav-link" data-view="products"><span>⚗</span> Produits</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="secure-note"><span class="status-dot"></span><span>Session sécurisée</span></div>
@@ -66,6 +67,7 @@
           <div><h2>Situation du stock</h2><p>Soldes calculés automatiquement à partir des mouvements enregistrés.</p></div>
           <span id="monthLabel" class="month-chip"></span>
         </div>
+        <div id="thresholdAlerts" class="threshold-alert hidden"></div>
         <div class="stat-grid">
           <article class="stat-card"><span class="stat-label">Produits suivis</span><strong id="statProducts">—</strong><small>Produits actifs</small></article>
           <article class="stat-card"><span class="stat-label">Entrées ce mois</span><strong id="statEntries">0</strong><small>Produits réceptionnés</small></article>
@@ -179,7 +181,42 @@
             <button data-history-group="year">Année</button>
           </div>
         </div>
+        <div class="history-filters">
+          <select id="historyProductFilter"><option value="">— Tous les produits —</option></select>
+          <button id="exportDetailedCsvBtn" class="btn btn-secondary btn-small">📥 Export CSV complet</button>
+        </div>
         <div id="historyContent"></div>
+        <div id="historyPagination" class="pagination"></div>
+      </section>
+
+      <!-- Produits -->
+      <section id="view-products" class="view-section hidden">
+        <div class="section-intro">
+          <div><h2>Gestion des produits</h2><p>Ajoutez, activez ou désactivez les produits et définissez les seuils d'alerte.</p></div>
+          <span class="info-chip">Catalogue</span>
+        </div>
+        <form id="addProductForm" class="panel form-panel">
+          <div class="subheading"><h3>Ajouter un nouveau produit</h3><span>Sera disponible immédiatement dans tous les formulaires</span></div>
+          <div class="form-grid two-col">
+            <div class="field"><label for="newProductName">Nom du produit *</label><input id="newProductName" maxlength="120" placeholder="Ex. : Acide sulfurique" required></div>
+            <div class="field"><label for="newProductUnit">Unité de mesure</label><input id="newProductUnit" value="Kg" maxlength="20" placeholder="Kg"></div>
+            <div class="field"><label for="newProductThreshold">Seuil d'alerte — stock minimum (Kg)</label><input id="newProductThreshold" type="number" min="0" step="0.001" value="0" placeholder="0"></div>
+          </div>
+          <div class="form-footer">
+            <p class="muted">L'identifiant est généré automatiquement à partir du nom.</p>
+            <button class="btn btn-primary" type="submit">Ajouter le produit</button>
+          </div>
+          <p id="addProductError" class="form-error" role="alert" aria-live="assertive"></p>
+        </form>
+        <article class="panel">
+          <div class="panel-heading"><div><h3>Produits enregistrés</h3><p>Modifiez le seuil d'alerte (sauvegardé localement) ou activez / désactivez un produit.</p></div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Produit</th><th>Unité</th><th>Seuil d'alerte (kg)</th><th>Statut</th><th>Actions</th></tr></thead>
+              <tbody id="productsTableBody"></tbody>
+            </table>
+          </div>
+        </article>
       </section>
 
       <footer class="app-footer">Gestion des produits chimiques sensibles <span>•</span> Les données sont conservées dans Google Sheets.</footer>

@@ -1,6 +1,10 @@
 'use strict';
 
-const state = { products: [], receipts: [], consumptions: [], history: [], month: currentMonth(), view: 'dashboard', busy: false, editing: null, historyGroup: 'day' };
+const HISTORY_GROUPS_PER_PAGE = 10;
+const state = { products: [], receipts: [], consumptions: [], history: [], month: currentMonth(), view: 'dashboard', busy: false, editing: null, historyGroup: 'day', historyProductFilter: '', historyPage: 0, thresholds: {} };
+function loadThresholds() { try { return JSON.parse(localStorage.getItem('chem_thresholds') || '{}'); } catch(_) { return {}; } }
+function saveThresholds(t) { try { localStorage.setItem('chem_thresholds', JSON.stringify(t)); } catch(_) {} }
+state.thresholds = loadThresholds();
 const byId = (id) => document.getElementById(id);
 const PRODUCT_FALLBACK = [
   { id: 'hydrosulfite', name: 'Hydrosulfite', unit: 'Kg', active: true },
@@ -194,6 +198,7 @@ function renderDashboard() {
   if(deficitCount>0)msg.push(`${deficitCount} produit(s) en déficit`);
   if(okCount===rows.length && rows.length>0)msg.push('Tous les produits sont disponibles');
   byId('statProducts').title=msg.join(', ')||'';
+  renderThresholdAlerts(rows);
   byId('stockTableBody').innerHTML=rows.map(r=>{
     const statusClass = r.closing === 0 ? 'stock-empty' : r.closing < 0 ? 'stock-deficit' : 'stock-ok';
     const statusText = r.closing === 0 ? 'Épuisé' : r.closing < 0 ? 'Déficit' : 'Disponible';
@@ -210,7 +215,17 @@ function renderProductSelectors() {
 }
 
 function renderReceiptState() {
-  byId('receiptDate').value=localDate();
+  const today=localDate();
+  byId('receiptDate').value=today;
+  const receivedToday=new Set(state.receipts.filter(r=>r.date===today).map(r=>r.product_id));
+  document.querySelectorAll('#receiptProducts .quantity-item').forEach(item=>{
+    const input=item.querySelector('input[data-product-id]');
+    if(!input)return;
+    const already=receivedToday.has(input.dataset.productId);
+    item.classList.toggle('already-received',already);
+    const small=item.querySelector('small');
+    if(small)small.textContent=already?'\u26a0 D\u00e9j\u00e0 r\u00e9ceptionn\u00e9 aujourd\'hui':'Quantit\u00e9 livr\u00e9e';
+  });
 }
 
 function renderReport() {
@@ -252,57 +267,147 @@ function groupByPeriod(movements, group){
 
 function renderHistory(){
   const group=state.historyGroup;
-  const grouped=groupByPeriod(state.history, group);
+  const filter=state.historyProductFilter;
+  const movements=filter?state.history.filter(m=>m.product_id===filter):state.history;
+  const grouped=groupByPeriod(movements,group);
   const currentStock=computeCurrentStock();
+
+  // Mise à jour du select de filtre produit
+  const filterSel=byId('historyProductFilter');
+  if(filterSel){
+    const curVal=filter;
+    filterSel.innerHTML=`<option value="">— Tous les produits —</option>`+
+      state.products.filter(p=>p.active!==false).map(p=>`<option value="${escapeHtml(p.id)}"${p.id===curVal?' selected':''}>${escapeHtml(p.name)}</option>`).join('');
+  }
+
   let html='';
-  let totalIn=0, totalOut=0;
-  // État actuel du stock par produit
-  html+=`<div class="history-summary"><h3>État actuel du stock</h3><div class="stock-grid">`;
-  state.products.filter(p=>p.active!==false).forEach(p=>{
-    const q=currentStock[p.id]||0;
-    const st=stockStatusText(q);
-    html+=`<div class="stat-card"><div>${escapeHtml(p.name)}</div><div class="quantity"><strong>${fmt(q)} ${escapeHtml(p.unit||'Kg')}</strong></div><span class="balance-pill ${st.cls}">${st.text}</span></div>`;
-  });
-  html+=`</div></div>`;
-  // Totaux
-  grouped.forEach(([period, items])=>{
-    items.forEach(m=>{
-      if(m.type==='entry'){totalIn+=num(m.quantity);} else{totalOut+=num(m.quantity);}
+  let totalIn=0,totalOut=0;
+
+  // Bloc état actuel du stock (masqué si filtre actif)
+  if(!filter){
+    html+=`<div class="history-summary"><h3>État actuel du stock</h3><div class="stock-grid">`;
+    state.products.filter(p=>p.active!==false).forEach(p=>{
+      const q=currentStock[p.id]||0;
+      const st=stockStatusText(q);
+      html+=`<div class="stat-card"><div>${escapeHtml(p.name)}</div><div class="quantity"><strong>${fmt(q)} ${escapeHtml(p.unit||'Kg')}</strong></div><span class="balance-pill ${st.cls}">${st.text}</span></div>`;
     });
-  });
+    html+=`</div></div>`;
+  }
+
+  // Totaux (sur les mouvements filtrés)
+  grouped.forEach(([,items])=>items.forEach(m=>{
+    if(m.type==='entry'){totalIn+=num(m.quantity);}else{totalOut+=num(m.quantity);}
+  }));
   html+=`<div class="history-summary totals"><div class="stat-card"><span>Total entrées</span><strong>${fmt(totalIn)} kg</strong></div><div class="stat-card"><span>Total sorties</span><strong>${fmt(totalOut)} kg</strong></div><div class="stat-card accent-card"><span>Solde net</span><strong>${fmt(totalIn-totalOut)} kg</strong></div></div>`;
-  // Détail par période
+
+  // Pagination des groupes
+  const totalPages=Math.max(1,Math.ceil(grouped.length/HISTORY_GROUPS_PER_PAGE));
+  if(state.historyPage>=totalPages)state.historyPage=0;
+  const pageGroups=grouped.slice(state.historyPage*HISTORY_GROUPS_PER_PAGE,(state.historyPage+1)*HISTORY_GROUPS_PER_PAGE);
+
   if(grouped.length===0){
-    html+=`<div class="empty-state">Aucun mouvement enregistré.</div>`;
+    html+=`<div class="empty-state">Aucun mouvement enregistré${filter?' pour ce produit':''}.${filter?` <button class="btn btn-secondary btn-small" id="clearHistoryFilter" style="margin-left:8px">Tout afficher</button>`:''}</div>`;
   }else{
-    grouped.forEach(([period, items])=>{
-      let periodIn=0, periodOut=0;
-      items.forEach(m=>{
-        if(m.type==='entry'){periodIn+=num(m.quantity);} else{periodOut+=num(m.quantity);}
-      });
-      html+=`<div class="history-group"><h4>${escapeHtml(period)} — Entrées: ${fmt(periodIn)} kg, Sorties: ${fmt(periodOut)} kg, Solde: ${fmt(periodIn-periodOut)} kg</h4>`;
+    pageGroups.forEach(([period,items])=>{
+      let periodIn=0,periodOut=0;
+      items.forEach(m=>{if(m.type==='entry'){periodIn+=num(m.quantity);}else{periodOut+=num(m.quantity);}});
+      html+=`<div class="history-group"><h4>${escapeHtml(period)} — Entrées\u202f: ${fmt(periodIn)}\u00a0kg, Sorties\u202f: ${fmt(periodOut)}\u00a0kg, Solde\u202f: ${fmt(periodIn-periodOut)}\u00a0kg</h4>`;
       html+=`<table class="history-table"><thead><tr><th>Date et heure</th><th>Type</th><th>Produit</th><th>Quantité (kg)</th><th>Détails</th><th>Actions</th></tr></thead><tbody>`;
       items.forEach(m=>{
-        const created = m.created_at ? new Date(m.created_at).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : (m.date||'');
-        const details = m.type==='entry' 
-          ? [m.supplier?`Fournisseur : ${escapeHtml(m.supplier)}`:'', m.reference?`Réf : ${escapeHtml(m.reference)}`:'', m.note?`Observation : ${escapeHtml(m.note)}`:''].filter(Boolean).join(' — ') || '—'
-          : [m.department?`Atelier : ${escapeHtml(m.department)}`:'', m.reason?`Motif : ${escapeHtml(m.reason)}`:'', m.reference?`Réf : ${escapeHtml(m.reference)}`:'', m.note?`Observation : ${escapeHtml(m.note)}`:''].filter(Boolean).join(' — ') || '—';
+        const created=m.created_at?new Date(m.created_at).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):(m.date||'');
+        const details=m.type==='entry'
+          ?[m.supplier?`Fournisseur\u202f: ${escapeHtml(m.supplier)}`:'',m.reference?`Réf\u202f: ${escapeHtml(m.reference)}`:'',m.note?`Note\u202f: ${escapeHtml(m.note)}`:''].filter(Boolean).join(' — ')||'—'
+          :[m.department?`Atelier\u202f: ${escapeHtml(m.department)}`:'',m.reason?`Motif\u202f: ${escapeHtml(m.reason)}`:'',m.reference?`Réf\u202f: ${escapeHtml(m.reference)}`:'',m.note?`Note\u202f: ${escapeHtml(m.note)}`:''].filter(Boolean).join(' — ')||'—';
         html+=`<tr><td>${escapeHtml(created)}</td><td><span class="movement-tag ${m.type}">${m.type==='entry'?'Entrée':'Sortie'}</span></td><td>${escapeHtml(m.product_name)}</td><td class="quantity">${fmt(m.quantity)} kg</td><td>${details}</td><td><button type="button" class="btn-edit" data-id="${escapeHtml(m.id)}" data-type="${m.type}">Modifier</button></td></tr>`;
       });
       html+=`</tbody></table></div>`;
     });
   }
   byId('historyContent').innerHTML=html;
+
+  // Bouton vider le filtre (rendu dynamiquement)
+  const clearBtn=byId('clearHistoryFilter');
+  if(clearBtn)clearBtn.addEventListener('click',()=>{
+    state.historyProductFilter='';state.historyPage=0;
+    if(filterSel)filterSel.value='';
+    renderHistory();
+  });
+
+  renderHistoryPagination(totalPages,grouped.length);
 }
 
-function renderAll() { byId('monthPicker').value=state.month; renderProductSelectors(); renderDashboard(); renderReceiptState(); renderReport(); renderHistory(); }
+function renderHistoryPagination(totalPages,totalGroups){
+  const el=byId('historyPagination');
+  if(!el)return;
+  if(totalPages<=1){el.innerHTML='';return;}
+  const page=state.historyPage;
+  let html=`<span class="pagination-info">Page ${page+1} / ${totalPages} (${totalGroups} période(s))</span><div class="pagination-btns">`;
+  html+=`<button class="btn btn-secondary btn-small" id="histPrev"${page===0?' disabled':''}>&#8592; Précédent</button>`;
+  html+=`<button class="btn btn-secondary btn-small" id="histNext"${page>=totalPages-1?' disabled':''}>Suivant &#8594;</button>`;
+  html+=`</div>`;
+  el.innerHTML=html;
+  const prevBtn=byId('histPrev');const nextBtn=byId('histNext');
+  if(prevBtn)prevBtn.addEventListener('click',()=>{if(state.historyPage>0){state.historyPage--;renderHistory();}});
+  if(nextBtn)nextBtn.addEventListener('click',()=>{if(state.historyPage<totalPages-1){state.historyPage++;renderHistory();}});
+}
+
+function renderThresholdAlerts(rows){
+  const el=byId('thresholdAlerts');
+  if(!el)return;
+  const alerts=rows.filter(r=>{const t=num(state.thresholds[r.product.id]);return t>0&&r.closing<=t;});
+  if(alerts.length===0){el.classList.add('hidden');el.innerHTML='';return;}
+  el.classList.remove('hidden');
+  el.innerHTML=`<strong>\u26a0 Alerte stock bas\u202f:</strong> `+
+    alerts.map(a=>`<span class="threshold-pill">${escapeHtml(a.product.name)}\u202f: <strong>${fmt(a.closing)}</strong>\u00a0kg (seuil\u202f: ${fmt(state.thresholds[a.product.id])}\u00a0kg)</span>`).join(' ');
+}
+
+function renderProducts(){
+  const el=byId('productsTableBody');
+  if(!el)return;
+  const thresholds=state.thresholds;
+  el.innerHTML=state.products.map(p=>{
+    const threshold=num(thresholds[p.id]||0);
+    const active=p.active!==false;
+    return `<tr>
+      <td class="product-name">${escapeHtml(p.name)}</td>
+      <td>${escapeHtml(p.unit||'Kg')}</td>
+      <td><span class="threshold-inline"><input type="number" class="threshold-input" data-product-id="${escapeHtml(p.id)}" value="${threshold}" min="0" step="0.001"><button class="btn btn-secondary btn-small save-threshold-btn" data-product-id="${escapeHtml(p.id)}" title="Sauvegarder le seuil">&#10003; Sauv.</button></span></td>
+      <td><span class="balance-pill ${active?'stock-ok':'stock-empty'}">${active?'Actif':'D\u00e9sactiv\u00e9'}</span></td>
+      <td><button class="btn btn-secondary btn-small toggle-product-btn" data-product-id="${escapeHtml(p.id)}" data-active="${active}">${active?'D\u00e9sactiver':'Activer'}</button></td>
+    </tr>`;
+  }).join('')||`<tr><td colspan="5" class="empty-state">Aucun produit.</td></tr>`;
+}
+
+function exportDetailedCsv(){
+  const movements=state.history;
+  if(!movements.length){showMessage('Aucun mouvement à exporter.','error');return;}
+  const headers=['Date','Type','Produit','Quantité (kg)','Fournisseur / Atelier','Motif / Référence','Observation','Enregistré le'];
+  const rows=movements.map(m=>[
+    m.date,
+    m.type==='entry'?'Entrée':'Sortie',
+    m.product_name||productName(m.product_id),
+    num(m.quantity),
+    m.type==='entry'?(m.supplier||''):(m.department||''),
+    m.type==='entry'?(m.reference||''):(m.reason||m.reference||''),
+    m.note||'',
+    m.created_at||''
+  ]);
+  const csv='\uFEFF'+[headers,...rows].map(row=>row.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\r\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=`mouvements-complets-${localDate()}.csv`;a.click();
+  URL.revokeObjectURL(url);
+}
+
+function renderAll() { byId('monthPicker').value=state.month; renderProductSelectors(); renderDashboard(); renderReceiptState(); renderReport(); renderHistory(); renderProducts(); }
 function navigate(view) {
   state.view=view;
   document.querySelectorAll('.view-section').forEach(el=>el.classList.toggle('hidden',el.id!==`view-${view}`));
   document.querySelectorAll('.nav-link').forEach(el=>el.classList.toggle('active',el.dataset.view===view));
   const titles={dashboard:'Vue d’ensemble',receipts:'Réception de stock',consumption:'Consommation',reports:'Rapports',history:'Historique et mouvements'};
   byId('pageTitle').textContent=titles[view]||'Stock sensible';
-  if(view==='receipts') renderReceiptState(); if(view==='reports') renderReport();
+  if(view==='receipts') renderReceiptState(); if(view==='reports') renderReport(); if(view==='products') renderProducts();
 }
 
 byId('loginForm').addEventListener('submit',async e=>{e.preventDefault();byId('loginError').textContent='';const pin=byId('accessPin').value;try{setBusy(true);await login(pin);byId('accessPin').value='';}catch(err){byId('loginError').textContent=err.message;}finally{setBusy(false);}});
@@ -310,7 +415,7 @@ document.querySelectorAll('.nav-link').forEach(btn=>btn.addEventListener('click'
 document.querySelectorAll('[data-go]').forEach(btn=>btn.addEventListener('click',()=>navigate(btn.dataset.go)));
 byId('monthPicker').addEventListener('change',e=>{if(e.target.value){state.month=e.target.value;renderAll();}});
 byId('refreshBtn').addEventListener('click',()=>loadData().catch(()=>{}));
-byId('logoutBtn').addEventListener('click',async()=>{try{await api('logout');}catch(_){}byId('appShell').classList.add('hidden');byId('loginScreen').classList.remove('hidden');});
+byId('logoutBtn').addEventListener('click',async()=>{if(!confirm('Voulez-vous vraiment vous d\u00e9connecter ?'))return;try{await api('logout');}catch(_){}byId('appShell').classList.add('hidden');byId('loginScreen').classList.remove('hidden');});
 
 byId('receiptForm').addEventListener('submit',async e=>{
   e.preventDefault();setFormError('receiptError');
@@ -367,22 +472,57 @@ document.addEventListener('keydown', e => {
   }
 });
 
-document.addEventListener('click',e=>{
+document.addEventListener('click',async e=>{
   if(!(e.target instanceof Element))return;
   const btn=e.target.closest('.btn-edit');
-  if(!btn)return;
-  const type=btn.dataset.type;
-  if(type!=='entry'&&type!=='exit'){
-    showMessage('Type de mouvement invalide.','error');
+  if(btn){
+    const type=btn.dataset.type;
+    if(type!=='entry'&&type!=='exit'){
+      showMessage('Type de mouvement invalide.','error');
+      return;
+    }
+    const source=type==='entry'?state.receipts:state.consumptions;
+    const record=source.find(r=>String(r.id)===String(btn.dataset.id));
+    if(!record){
+      showMessage('Mouvement introuvable. Actualisez les données puis réessayez.','error');
+      return;
+    }
+    openEditRecord({...record,type});
     return;
   }
-  const source=type==='entry'?state.receipts:state.consumptions;
-  const record=source.find(r=>String(r.id)===String(btn.dataset.id));
-  if(!record){
-    showMessage('Mouvement introuvable. Actualisez les données puis réessayez.','error');
+
+  const saveThresholdBtn=e.target.closest('.save-threshold-btn');
+  if(saveThresholdBtn){
+    const pid=saveThresholdBtn.dataset.productId;
+    const input=document.querySelector(`.threshold-input[data-product-id="${pid}"]`);
+    if(input){
+      const val=num(input.value);
+      state.thresholds[pid]=val;
+      saveThresholds(state.thresholds);
+      showMessage(`Seuil d'alerte enregistré pour ce produit (${val} kg).`);
+      renderThresholdAlerts(allCurrentRows());
+    }
     return;
   }
-  openEditRecord({...record,type});
+
+  const toggleProductBtn=e.target.closest('.toggle-product-btn');
+  if(toggleProductBtn){
+    const pid=toggleProductBtn.dataset.productId;
+    const isCurrentlyActive=toggleProductBtn.dataset.active==='true';
+    const newStatus=!isCurrentlyActive;
+    if(!confirm(`Voulez-vous vraiment ${newStatus?'activer':'désactiver'} ce produit ?`))return;
+    try{
+      setBusy(true);
+      await api('update_product',{id:pid,active:newStatus});
+      await loadData();
+      showMessage(`Produit ${newStatus?'activé':'désactivé'} avec succès.`);
+    }catch(err){
+      showMessage(err.message,'error');
+    }finally{
+      setBusy(false);
+    }
+    return;
+  }
 });
 
 document.querySelectorAll('[data-history-group]').forEach(btn=>{
@@ -393,6 +533,68 @@ document.querySelectorAll('[data-history-group]').forEach(btn=>{
     renderHistory();
   });
 });
+
+const histFilterSel=byId('historyProductFilter');
+if(histFilterSel){
+  histFilterSel.addEventListener('change',e=>{
+    state.historyProductFilter=e.target.value;
+    state.historyPage=0;
+    renderHistory();
+  });
+}
+
+const detailedCsvBtn=byId('exportDetailedCsvBtn');
+if(detailedCsvBtn){
+  detailedCsvBtn.addEventListener('click',exportDetailedCsv);
+}
+
+const addProductForm=byId('addProductForm');
+if(addProductForm){
+  addProductForm.addEventListener('submit',async e=>{
+    e.preventDefault();
+    setFormError('addProductError','');
+    const name=byId('newProductName').value.trim();
+    const unit=byId('newProductUnit').value.trim()||'Kg';
+    const threshold=num(byId('newProductThreshold').value);
+    if(!name){
+      setFormError('addProductError','Veuillez saisir le nom du produit.');
+      return;
+    }
+    try{
+      setBusy(true);
+      const res=await api('add_product',{name,unit});
+      if(threshold>0&&res&&res.id){
+        state.thresholds[res.id]=threshold;
+        saveThresholds(state.thresholds);
+      }
+      addProductForm.reset();
+      byId('newProductUnit').value='Kg';
+      byId('newProductThreshold').value='0';
+      await loadData();
+      showMessage('Produit ajouté avec succès.');
+    }catch(err){
+      setFormError('addProductError',err.message);
+    }finally{
+      setBusy(false);
+    }
+  });
+}
+
+const receiptDateInput=byId('receiptDate');
+if(receiptDateInput){
+  receiptDateInput.addEventListener('change',()=>{
+    const d=receiptDateInput.value;
+    const receivedOnDate=new Set(state.receipts.filter(r=>r.date===d).map(r=>r.product_id));
+    document.querySelectorAll('#receiptProducts .quantity-item').forEach(item=>{
+      const input=item.querySelector('input[data-product-id]');
+      if(!input)return;
+      const already=receivedOnDate.has(input.dataset.productId);
+      item.classList.toggle('already-received',already);
+      const small=item.querySelector('small');
+      if(small)small.textContent=already?'⚠️ Déjà réceptionné à cette date':'Quantité livrée';
+    });
+  });
+}
 
 // Always start on login screen: PIN code required every time the site is opened
 // (No automatic bypass)
